@@ -297,6 +297,20 @@
       align-self: center; font-size: .78rem; color: var(--ink-3); padding: .3rem .8rem; border-radius: 999px;
       border: 1px dashed var(--line-strong); text-align: center;
     }
+    .approval {
+      align-self: flex-start; max-width: 41rem; margin-left: 2.85rem; padding: .7rem .9rem; border-radius: 12px;
+      background: var(--panel); border: 1px solid var(--line-strong); font-size: .875rem; display: grid; gap: .45rem;
+    }
+    .approval .a-path { font-family: var(--mono); color: var(--ink); overflow-wrap: anywhere; }
+    .approval .a-meta, .approval .a-state { color: var(--ink-3); font-size: .78rem; }
+    .approval .a-actions { display: flex; gap: .5rem; }
+    .approval button {
+      height: 28px; padding: 0 .8rem; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--raise);
+      color: var(--ink); font: 600 .78rem var(--sans); cursor: pointer;
+    }
+    .approval button:disabled { opacity: .5; cursor: default; }
+    .approval.approved .a-state { color: var(--ink); }
+    .approval.rejected .a-state, .approval.cancelled .a-state { color: var(--bad); }
     .error {
       align-self: flex-start; display: flex; flex-wrap: wrap; gap: .4rem .55rem; align-items: flex-start; max-width: 41rem; margin-left: 2.85rem;
       padding: .6rem .85rem; border-radius: 12px; background: var(--bad-wash); border: 1px solid var(--bad);
@@ -659,7 +673,6 @@
       btn.addEventListener('keydown', (e) => {
         if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)) { e.preventDefault(); open(); }
       });
-      // preventDefault stops the wrapping <label> from re-clicking the button
       list.addEventListener('click', (e) => {
         e.preventDefault();
         const li = e.target.closest('.dd-opt');
@@ -866,7 +879,6 @@
       })
       .catch(() => {});
 
-    // Persona switch mid-session without losing history (A5)
     personaSelect.addEventListener('change', async () => {
       const personaId = personaSelect.value || null;
       try {
@@ -875,8 +887,8 @@
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({persona_id: personaId}),
         });
-        // 404 = session not created yet; the persona still goes with the next run
-        if (!res.ok && res.status !== 404) throw new Error('HTTP ' + res.status);
+        if (!res.ok && res.status !== 404)
+          throw new Error('HTTP ' + res.status);
         personaChip.classList.remove('flash');
         void personaChip.offsetWidth;
         personaChip.classList.add('flash');
@@ -889,7 +901,8 @@
     clearBtn.addEventListener('click', async () => {
       try {
         const res = await fetch(`/api/sessions/${sessionId}/clear`, { method: 'POST' });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
+        if (!res.ok)
+          throw new Error('HTTP ' + res.status);
         logInner.replaceChildren();
         currentMessages = [];
         sessionTotalTokens = 0;
@@ -918,7 +931,8 @@
             data: { messages: currentMessages },
           }),
         });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
+        if (!res.ok)
+          throw new Error('HTTP ' + res.status);
         const data = await res.json();
         const path = '/p/' + encodeURIComponent(data.snapshot_id);
         const url = location.origin + path;
@@ -926,8 +940,11 @@
         const copy = el('button', 'btn', 'Copy link');
         copy.type = 'button';
         copy.addEventListener('click', async () => {
-          try { await navigator.clipboard.writeText(url); copy.textContent = 'Copied'; }
-          catch { copy.textContent = 'Copy failed'; }
+          try {
+            await navigator.clipboard.writeText(url); copy.textContent = 'Copied';
+          } catch {
+            copy.textContent = 'Copy failed';
+          }
           setTimeout(() => { copy.textContent = 'Copy link'; }, 1800);
         });
         const x = el('button', 'x');
@@ -946,7 +963,55 @@
       }
     });
 
+    let pendingApproval = null;
+
+    function resolveApproval(outcome, label) {
+      if (!pendingApproval) return;
+      const p = pendingApproval;
+      if (outcome !== 'pending') pendingApproval = null;
+      p.approve.disabled = true;
+      p.reject.disabled = true;
+      p.card.classList.remove('approved', 'rejected', 'cancelled');
+      if (outcome !== 'pending') p.card.classList.add(outcome);
+      p.state.textContent = label;
+    }
+
+    function addApproval(runId, payload) {
+      document.getElementById('empty')?.remove();
+      const card = el('div', 'msg approval');
+      card.setAttribute('role', 'group');
+      card.setAttribute('aria-label', 'File write approval');
+      const path = el('div', 'a-path', payload.path);
+      const meta = el('div', 'a-meta', 'Write file · ' + payload.size_bytes + ' bytes');
+      const state = el('div', 'a-state', 'Waiting for your approval');
+      const actions = el('div', 'a-actions');
+      const approve = el('button', null, 'Approve');
+      const reject = el('button', null, 'Reject');
+      approve.type = reject.type = 'button';
+      actions.append(approve, reject);
+      card.append(path, meta, actions, state);
+      logInner.appendChild(card);
+      scrollDown();
+      pendingApproval = { runId, card, approve, reject, state };
+      setStatus('Run ' + runId.slice(0, 8) + ' · awaiting approval', 'busy');
+
+      async function decide(kind) {
+        approve.disabled = true;
+        reject.disabled = true;
+        state.textContent = kind === 'approve' ? 'Approval submitted…' : 'Rejection submitted…';
+        try {
+          const r = await fetch('/api/runs/' + runId + '/' + kind, { method: 'POST' });
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+        } catch (err) {
+          state.textContent = 'Could not send decision: ' + err.message;
+        }
+      }
+      approve.addEventListener('click', () => decide('approve'));
+      reject.addEventListener('click', () => decide('reject'));
+    }
+
     function finish(text, state) {
+      resolveApproval('cancelled', 'Cancelled');
       setStatus(text, state);
       send.disabled = false;
       cancel.disabled = true;
@@ -961,6 +1026,7 @@
     cancel.addEventListener('click', async () => {
       if (!currentRunId) return;
       cancel.disabled = true;
+      resolveApproval('pending', 'Cancelling…');
       setStatus('Stopping…', 'busy');
       try {
         await fetch('/api/runs/' + currentRunId + '/cancel', { method: 'POST' });
@@ -998,6 +1064,9 @@
       const message = input.value.trim();
       if (!message) return;
       const personaId = personaSelect.value || null;
+      let fileWrite = null;
+      const wm = /^\/write\s+(\S+)[ \t]*(?:\r?\n([\s\S]*))?$/.exec(message);
+      if (wm) fileWrite = { path: wm[1], content: wm[2] || '' };
       input.value = '';
       autosize();
       send.disabled = true;
@@ -1021,9 +1090,14 @@
             persona_id: personaId,
             mode: modeSelect.value,
             model: modelInput.value,
+            ...(fileWrite ? { file_write: fileWrite } : {}),
           }),
         });
-        if (!response.ok) throw new Error('HTTP ' + response.status);
+        if (!response.ok) {
+          let detail = '';
+          try { detail = (await response.json()).detail || ''; } catch {}
+          throw new Error('HTTP ' + response.status + (detail ? ' · ' + detail : ''));
+        }
         runId = (await response.json()).run_id;
       } catch (error) {
         replyNode.remove();
@@ -1042,6 +1116,19 @@
         }
         reply.textContent += JSON.parse(e.data).payload.text;
         scrollDown();
+      });
+
+      currentSource.addEventListener('approval_request', (e) => {
+        const ev = JSON.parse(e.data);
+        addApproval(ev.run_id || runId, ev.payload);
+      });
+
+      currentSource.addEventListener('tool_result', (e) => {
+        const p = JSON.parse(e.data).payload;
+        if (p.tool !== 'write') return;
+        const ok = p.status === 'approved';
+        resolveApproval(ok ? 'approved' : 'rejected', ok ? 'Approved · file written' : 'Rejected · nothing written');
+        setStatus('Run ' + runId.slice(0, 8) + ' · ' + p.status, 'busy');
       });
 
       currentSource.addEventListener('metrics', (e) => {
