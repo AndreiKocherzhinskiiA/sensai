@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import re
 import secrets
 import threading
 import time
@@ -863,9 +864,21 @@ def get_artifact_history(artifact_id: str):
     return app.state.artifacts.get_history(artifact_id)
 
 
+def _pdf_disposition(name: str) -> str:
+    safe = re.sub(r'[^A-Za-z0-9_-]', '_', name) or 'export'
+    return f'attachment; filename="{safe}.pdf"'
+
+
 @app.get('/api/artifacts/{artifact_id}/export')
-def export_artifact(artifact_id: str):
+def export_artifact(artifact_id: str, format: str = Query('md')):
     try:
+        if format == 'pdf':
+            pdf_bytes = app.state.artifacts.export_as_pdf(artifact_id)
+            return Response(
+                content=pdf_bytes,
+                media_type='application/pdf',
+                headers={'Content-Disposition': _pdf_disposition(artifact_id)},
+            )
         content = app.state.artifacts.render_markdown(artifact_id)
         return PlainTextResponse(content, media_type='text/markdown')
     except ArtifactError as err:
@@ -905,6 +918,13 @@ def export_public_snapshot(snapshot_id: str, format: str = Query('json')):
             )
         elif format == 'html':
             return HTMLResponse(app.state.snapshots.export_as_html(snapshot_id))
+        elif format == 'pdf':
+            pdf_bytes = app.state.snapshots.export_as_pdf(snapshot_id)
+            return Response(
+                content=pdf_bytes,
+                media_type='application/pdf',
+                headers={'Content-Disposition': _pdf_disposition(snapshot_id)},
+            )
         else:
             return Response(
                 app.state.snapshots.export_as_json(snapshot_id),
