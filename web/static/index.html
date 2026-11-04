@@ -1044,7 +1044,6 @@
       </label>
       <label class="chip">Mode
         <select id="mode-select">
-          <option value="stub" data-sub="Simulated replies, no model needed">Stub</option>
           <option value="ollama" selected data-sub="Chat with automatic use of enabled tools">Chat</option>
           <option value="react" data-sub="Autonomous ReAct loop with step/time bounds">ReAct loop</option>
         </select>
@@ -1439,7 +1438,7 @@
         const listing = addLine('sys-note', data.map(t => t.name + ' · ' + (t.approval === 'ask' ? 'approval required' : 'automatic') + '\n' + t.description).join('\n\n'));
         listing.style.whiteSpace = 'pre-wrap';
         listing.style.textAlign = 'left';
-      } catch (error) { addLine('error', error.message, false); }
+      } catch (error) { addLine('error', error.message); }
       finally { mcpTools.disabled = false; }
     });
 
@@ -1901,7 +1900,7 @@
       logInner.appendChild(box);
     }
 
-    function addLine(kind, text, allowStubSuggestion = true) {
+    function addLine(kind, text) {
       document.getElementById('empty')?.remove();
       let node, body;
       if (kind === 'user') {
@@ -1930,18 +1929,6 @@
         node.innerHTML = ICON_ERR;
         body = el('span', null, text);
         node.appendChild(body);
-          if (modeSelect.value === 'ollama' && allowStubSuggestion) {
-          const fix = el('button', 'fix', 'Switch to Stub mode');
-          fix.type = 'button';
-          fix.addEventListener('click', () => {
-            modeSelect.value = 'stub';
-            modeDD.render();
-            fix.remove();
-            setStatus('Switched to Stub mode · send again to retry');
-            input.focus();
-          });
-          node.appendChild(fix);
-        }
       } else {
         node = el('div', 'msg sys-note', text);
         body = node;
@@ -2042,7 +2029,7 @@
         setStatus('Conversation cleared (' + (data.removed_messages || 0) + ' messages removed)');
         refreshSessions();
       } catch (err) {
-        addLine('error', 'Could not clear the chat: ' + err.message, false);
+        addLine('error', 'Could not clear the chat: ' + err.message);
       }
     }
     clearBtn.addEventListener('click', () => {
@@ -2264,7 +2251,7 @@
     async function pinSession(id, pinned) {
       const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/pin`, {
         method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({pinned}) });
-      if (!res.ok) addLine('error', 'Could not ' + (pinned ? 'pin' : 'unpin') + ' the chat (HTTP ' + res.status + ').', false);
+      if (!res.ok) addLine('error', 'Could not ' + (pinned ? 'pin' : 'unpin') + ' the chat (HTTP ' + res.status + ').');
       await refreshSessions();
     }
 
@@ -2340,7 +2327,7 @@
     async function renameSession(id, title) {
       const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/rename`, {
         method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({title}) });
-      if (!res.ok) addLine('error', 'Could not rename the chat (HTTP ' + res.status + ').', false);
+      if (!res.ok) addLine('error', 'Could not rename the chat (HTTP ' + res.status + ').');
       await refreshSessions();
     }
 
@@ -2411,7 +2398,7 @@
       try {
         const res = await fetch(`/api/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
         if (!res.ok && res.status !== 404) throw new Error('HTTP ' + res.status);
-      } catch (err) { addLine('error', 'Could not delete the chat: ' + err.message, false); return; }
+      } catch (err) { addLine('error', 'Could not delete the chat: ' + err.message); return; }
       if (id === sessionId) {
         const next = knownSessions.find(x => x.id !== id && x.turns_count > 0);
         if (next) await loadSession(next.id); else await loadSession(newId());
@@ -2422,7 +2409,7 @@
     document.getElementById('session-new').addEventListener('click', () => newSession());
 
     const MODES = {
-      stub: 'Simulated replies', ollama: 'Local model', mcp: 'MCP tools',
+      ollama: 'Local model', mcp: 'MCP tools',
       search: 'Web search', react: 'ReAct loop',
     };
     const note = text => { const n = addLine('sys-note', text); n.style.whiteSpace = 'pre-wrap'; return n; };
@@ -2463,7 +2450,7 @@
         personaDD.render();
         personaSelect.dispatchEvent(new Event('change'));
       }},
-      {name: 'mode', args: '<stub|ollama|mcp|search|react>', desc: 'Change chat mode',
+      {name: 'mode', args: '<ollama|mcp|search|react>', desc: 'Change chat mode',
         options: () => Object.entries(MODES).map(([value, desc]) => ({value, desc})), run: arg => {
         if (!arg) { note('Mode: ' + modeSelect.value + '. Available: ' + Object.keys(MODES).join(', ')); return; }
         if (!MODES[arg]) { note('Unknown mode "' + arg + '". Available: ' + Object.keys(MODES).join(', ')); return; }
@@ -2492,7 +2479,7 @@
       const arg = m[2].trim();
       const cmd = COMMANDS.find(c => c.name === name);
       if (!cmd) {
-        addLine('error', 'Unknown command "/' + name + '". Type /help to see all commands.', false);
+        addLine('error', 'Unknown command "/' + name + '". Type /help to see all commands.');
         return {keepInput: true};
       }
       if (cmd.send) {
@@ -2501,7 +2488,7 @@
       }
       addLine('user', text);
       try { await cmd.run(arg); }
-      catch (err) { addLine('error', '/' + cmd.name + ' failed: ' + err.message, false); }
+      catch (err) { addLine('error', '/' + cmd.name + ' failed: ' + err.message); }
       return {};
     }
 
@@ -2796,7 +2783,7 @@
       } catch (error) {
         userLine.closest('.msg').remove();
         replyNode.remove();
-        addLine('error', 'Could not start the run: ' + error.message, false);
+        addLine('error', 'Could not start the run: ' + error.message);
         return finish('Failed', 'fail');
       }
 
@@ -2960,7 +2947,7 @@
 
       currentSource.onerror = (e) => {
         if (e.data) {
-          addLine('error', JSON.parse(e.data).payload.message, false);
+          addLine('error', JSON.parse(e.data).payload.message);
           return;
         }
         if (currentSource && currentSource.readyState === EventSource.CLOSED) return;
