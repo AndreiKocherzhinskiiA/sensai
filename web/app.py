@@ -161,6 +161,9 @@ class RunRequest(BaseModel):
     tools_enabled: StrictBool = True
     file_read: Optional[str] = None
     file_write: Optional[Dict[str, str]] = None
+    # Temporary chat: nothing is saved (no session, no events, no cache); the client supplies the history.
+    temporary: StrictBool = False
+    history: Optional[List[Dict[str, str]]] = Field(default=None, max_length=60)
 
     model_config = {'populate_by_name': True}
 
@@ -874,19 +877,32 @@ def start_run(request: RunRequest):
             if p_id not in personas:
                 raise HTTPException(status_code=422, detail=f'Unknown persona {p_id!r}.')
 
-    session_id = request.session_id.strip() if request.session_id and request.session_id.strip() else None
-    existing_session = app.state.session_store.get_session(session_id) if session_id else None
-    if not existing_session:
-        created_session = app.state.session_store.create_session(
-            title='New session',
-            persona_id=p_id,
-            session_id=session_id,
-        )
-        session_id = created_session['id']
-    elif p_id is not None:
-        app.state.session_store.set_session_persona(session_id, p_id)
+    temporary = request.temporary
+    temp_history: List[Dict[str, str]] = []
+    if temporary:
+        # Never touches the session store: the id is server-made so it cannot collide with a saved chat.
+        for item in request.history or []:
+            if item.get('role') not in ('user', 'assistant') or not isinstance(item.get('content'), str):
+                raise HTTPException(status_code=422, detail='History entries need a user/assistant role and text content.')
+            if len(item['content']) > 50000:
+                raise HTTPException(status_code=422, detail='History entry too long.')
+            temp_history.append({'role': item['role'], 'content': item['content']})
+        session_id = 'tmp_' + uuid.uuid4().hex[:12]
+        session_persona = p_id
+    else:
+        session_id = request.session_id.strip() if request.session_id and request.session_id.strip() else None
+        existing_session = app.state.session_store.get_session(session_id) if session_id else None
+        if not existing_session:
+            created_session = app.state.session_store.create_session(
+                title='New session',
+                persona_id=p_id,
+                session_id=session_id,
+            )
+            session_id = created_session['id']
+        elif p_id is not None:
+            app.state.session_store.set_session_persona(session_id, p_id)
 
-    session_persona = app.state.session_store.get_session_persona(session_id)
+        session_persona = app.state.session_store.get_session_persona(session_id)
 
     active_prompt_obj = app.state.prompts.get_active_version('system')
     prompt_version = active_prompt_obj['version_id'] if active_prompt_obj else 'v1'
@@ -896,7 +912,7 @@ def start_run(request: RunRequest):
         base_prompt += '\n\n' + SEARCH_RULE
 
     personas = load_personas()
-    saved_history = app.state.session_store.get_messages(session_id)
+    saved_history = temp_history if temporary else app.state.session_store.get_messages(session_id)
 
     attachment = None
     if request.file_read and app.state.workspace_writer:
@@ -937,14 +953,15 @@ def start_run(request: RunRequest):
             else:
                 effective_mode = 'stub'  # Auto fallback
 
-    stream = EventStream(on_event=app.state.store.record_event,
+    stream = EventStream(on_event=None if temporary else app.state.store.record_event,
                          payload_filter=policy.event_payload if policy else None)
-    app.state.store.record_run_metadata(
-        stream.run_id,
-        persona_id=session_persona,
-        prompt_version=prompt_version,
-        session_id=session_id,
-    )
+    if not temporary:
+        app.state.store.record_run_metadata(
+            stream.run_id,
+            persona_id=session_persona,
+            prompt_version=prompt_version,
+            session_id=session_id,
+        )
 
     host = app.state.ollama_host  # Fixed server-side; client must not choose outbound URL
     model = request.model or app.state.default_model
@@ -956,6 +973,7 @@ def start_run(request: RunRequest):
         'python_code': python_code,
         'user_content': user_content + ('\n\nUser-supplied Python source:\n' + python_code if python_code is not None else ''),
         'session_id': session_id,
+        'temporary': temporary,
         'persona_id': session_persona,
         'persona': personas.get(session_persona) if session_persona else None,
         'messages': to_send,
@@ -965,6 +983,7 @@ def start_run(request: RunRequest):
             attachment is None
             and not retrieved_results
             and not file_write
+            and not temporary
         ),
         'mode': effective_mode,
         'host': host,
@@ -1308,8 +1327,9 @@ async def generate_events(run: Dict[str, Any]):
             if run.get('cleared'):
                 yield to_sse(stream.done('cancelled'))
                 return
-            persist_turn(app.state.session_store, session_id, user_content, full_reply,
-                         guardrails=policy)
+            if not run.get('temporary'):
+                persist_turn(app.state.session_store, session_id, user_content, full_reply,
+                             guardrails=policy)
 
             yield to_sse(stream.emit('metrics', tokens=tokens, latency_ms=latency_ms))
             yield to_sse(stream.done('completed'))

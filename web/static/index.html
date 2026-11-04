@@ -161,6 +161,19 @@
     .icon-btn[aria-expanded="true"] .k2 { transform: translateX(4px); }
     .icon-btn[aria-expanded="true"] svg { transform: none; }
 
+    /* ---------- Temporary chat ---------- */
+    .temp-pill { display: inline-flex; align-items: center; gap: .45rem; margin-top: 1rem; padding: .5rem .95rem; border-radius: 999px; border: 1px dashed var(--line-strong); background: transparent; color: var(--ink-2); font: 500 .85rem var(--sans); cursor: pointer; transition: background-color .2s, color .2s, border-color .2s; animation: enter .8s var(--out) .45s both; }
+    .temp-pill:hover { color: var(--acc-text); border-color: var(--acc-edge); background: var(--acc-wash); }
+    .temp-pill:focus-visible, #temp-exit:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .temp-pill svg { width: 16px; height: 16px; }
+    #temp-banner { display: flex; align-items: center; justify-content: center; gap: .6rem; padding: .45rem 1rem; font-size: .8rem; color: var(--ink-2); background: var(--acc-wash); border-bottom: 1px dashed var(--acc-edge); }
+    #temp-banner[hidden] { display: none; }
+    #temp-banner svg { flex: none; color: var(--acc-text); }
+    #temp-banner b { color: var(--ink); font-weight: 600; }
+    #temp-exit { flex: none; padding: .2rem .6rem; border-radius: 7px; border: 1px solid var(--acc-edge); background: transparent; color: var(--acc-text); font: 600 .76rem var(--sans); cursor: pointer; }
+    #temp-exit:hover { background: var(--acc-wash); }
+    body.temp-chat .empty .enso { opacity: .55; }
+
     /* ---------- Drag and drop overlay ---------- */
     #drop-overlay { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 1.25rem; pointer-events: none; background: color-mix(in oklch, var(--bg) 70%, transparent); backdrop-filter: blur(6px); animation: do-in .18s var(--out); }
     @keyframes do-in { from { opacity: 0; } }
@@ -1022,6 +1035,8 @@
     </div>
   </header>
 
+  <div id="temp-banner" role="status" hidden><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 10h.01M15 10h.01"/><path d="M12 2a8 8 0 0 0-8 8v12l3-3 2.5 2.5L12 19l2.5 2.5L17 19l3 3V10a8 8 0 0 0-8-8Z"/></svg><span><b>Temporary chat.</b> Not saved to your history or the dashboard, and gone when you leave it.</span><button id="temp-exit" type="button">Exit</button></div>
+
   <section class="toolbar" aria-label="Session settings">
     <div class="wrap">
       <label class="chip persona" id="persona-chip">Persona
@@ -1572,6 +1587,8 @@
 
     let sessionTotalTokens = 0;
     let currentMessages = [];
+    let temporary = false;          // temporary chat: nothing is saved server-side
+    let lastRealSessionId = sessionId;
     let savedPersonaId = null;
     let pendingFile = null;
     let sessionLoadVersion = 0;
@@ -1861,11 +1878,13 @@
 
     function scrollDown() { log.scrollTop = log.scrollHeight; }
 
+    const TEMP_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 10h.01M15 10h.01"/><path d="M12 2a8 8 0 0 0-8 8v12l3-3 2.5 2.5L12 19l2.5 2.5L17 19l3 3V10a8 8 0 0 0-8-8Z"/></svg>';
     function showEmpty() {
       if (logInner.children.length) return;
       const box = el('div', 'empty');
       box.id = 'empty';
-      box.innerHTML = '<svg class="enso" viewBox="0 0 32 32" aria-hidden="true"><path class="stroke" stroke-width="3.4" d="M25.5 10.5A11 11 0 1 0 25.5 21.5"/><path class="stroke tail" stroke-width="1.5" d="M25.5 21.5A11 11 0 0 0 27 17"/><circle class="dot" cx="16" cy="16" r="2.6"/></svg><h2>What are we working on?</h2><p>Pick a persona, then ask. Switch personas any time without losing the thread.</p>';
+      box.innerHTML = '<svg class="enso" viewBox="0 0 32 32" aria-hidden="true"><path class="stroke" stroke-width="3.4" d="M25.5 10.5A11 11 0 1 0 25.5 21.5"/><path class="stroke tail" stroke-width="1.5" d="M25.5 21.5A11 11 0 0 0 27 17"/><circle class="dot" cx="16" cy="16" r="2.6"/></svg>' + (temporary ? '<h2>Temporary chat</h2><p>Nothing here is saved to your history or the dashboard. It is gone when you leave or reload.</p>' : '<h2>What are we working on?</h2><p>Pick a persona, then ask. Switch personas any time without losing the thread.</p>');
+      if (temporary) { logInner.appendChild(box); return; }
       const sug = el('div', 'suggest');
       ['Explain how you work', 'Plan my study week', 'Summarise a concept for me'].forEach(t => {
         const b = el('button', null, t);
@@ -1874,6 +1893,11 @@
         sug.appendChild(b);
       });
       box.appendChild(sug);
+      const pill = el('button', 'temp-pill'); pill.type = 'button';
+      pill.title = 'Chat without saving it to your history';
+      pill.innerHTML = TEMP_ICON + '<span>Temporary chat</span>';
+      pill.addEventListener('click', enterTemporary);
+      const row = el('div'); row.appendChild(pill); box.appendChild(row);
       logInner.appendChild(box);
     }
 
@@ -1952,7 +1976,9 @@
     }
 
     async function loadSession(id) {
+      if (temporary) { temporary = false; setTemporaryUI(false); }
       sessionId = id;
+      lastRealSessionId = id;
       localStorage.setItem('sensai_session_id', id);
       resetView();
       const version = sessionLoadVersion;
@@ -1987,7 +2013,7 @@
     personaSelect.addEventListener('change', async () => {
       const personaId = personaSelect.value || null;
       try {
-        const res = await fetch(`/api/sessions/${sessionId}/persona`, {
+        const res = temporary ? {ok: true} : await fetch(`/api/sessions/${sessionId}/persona`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({persona_id: personaId}),
@@ -2005,6 +2031,7 @@
 
     async function clearConversation() {
       if (currentRunId) return;
+      if (temporary) { resetView(); showEmpty(); setStatus('Conversation cleared'); return; }
       try {
         const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/clear`, { method: 'POST' });
         if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -2328,6 +2355,35 @@
 
     function newId() { return 'sess_' + Math.random().toString(36).substring(2, 10); }
 
+    const tempBanner = document.getElementById('temp-banner');
+    function setTemporaryUI(on) {
+      document.body.classList.toggle('temp-chat', on);
+      tempBanner.hidden = !on;
+    }
+    async function enterTemporary() {
+      if (temporary) return;
+      if (currentMessages.length) { setStatus('Temporary chat starts from a new chat. Use /new first.', 'busy'); return; }
+      if (currentRunId) { setStatus('Wait for the reply to finish (or press Esc) before switching chats', 'busy'); return; }
+      lastRealSessionId = sessionId;
+      temporary = true;
+      sessionId = 'tmp_' + Math.random().toString(36).substring(2, 10);   // never stored
+      resetView();
+      setTemporaryUI(true);
+      showEmpty();
+      renderSessions();
+      setStatus('Temporary chat · nothing is saved');
+      input.focus();
+    }
+    async function exitTemporary() {
+      if (!temporary) return;
+      if (currentRunId) { setStatus('Wait for the reply to finish (or press Esc) before leaving', 'busy'); return; }
+      await loadSession(lastRealSessionId);
+      setStatus('Ready');
+      input.focus();
+    }
+    const toggleTemporary = () => (temporary ? exitTemporary() : enterTemporary());
+    document.getElementById('temp-exit').addEventListener('click', exitTemporary);
+
     async function switchSession(id) {
       if (currentRunId) { setStatus('Wait for the reply to finish (or press Esc) before switching chats', 'busy'); return; }
       if (id !== sessionId) await loadSession(id);
@@ -2388,14 +2444,16 @@
           if (!arg || !hit) { note(list.length ? 'Usage: /switch <number|title>\n' + list.map((x, i) => (i + 1) + '. ' + x.title).join('\n') : 'No saved chats yet.'); return; }
           await switchSession(hit.id);
         }},
+      {name: 'temp', desc: 'Toggle temporary chat (not saved)', run: () => toggleTemporary()},
       {name: 'rename', args: '<title>', desc: 'Rename this chat', run: async arg => {
+        if (temporary) { note('Temporary chats are not saved, so there is nothing to rename.'); return; }
         if (!arg) { note('Usage: /rename <title>'); return; }
         const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/rename`, {
           method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({title: arg}) });
         if (res.ok) { setStatus('Chat renamed'); refreshSessions(); }
         else note(res.status === 404 ? 'Nothing to rename yet \u2014 send a message first.' : 'Could not rename (HTTP ' + res.status + ').');
       }},
-      {name: 'delete', desc: 'Delete this chat', run: () => deleteSession(sessionId)},
+      {name: 'delete', desc: 'Delete this chat', run: () => (temporary ? exitTemporary() : deleteSession(sessionId))},
       {name: 'persona', args: '[id|default]', desc: 'List or switch persona', options: personaOptions, run: arg => {
         const opts = personaOptions();
         if (!arg) { note('Personas: ' + opts.map(o => o.value + (o.value === (personaSelect.value || 'default') ? ' (active)' : '')).join(', ')); return; }
@@ -2714,7 +2772,7 @@
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
             message,
-            session_id: sessionId,
+            ...(temporary ? {temporary: true, history: currentMessages.slice(-40)} : {session_id: sessionId}),
             persona_id: personaId,
             mode: pythonCode !== null ? 'mcp' : (modeOverride || modeSelect.value),
             model: modelInput.value,
@@ -2925,6 +2983,7 @@
         plus: SVG('<path d="M5 12h14M12 5v14"/>'),
         search: SVG('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'),
         open: ICON_CHAT,
+        ghost: SVG('<path d="M9 10h.01M15 10h.01"/><path d="M12 2a8 8 0 0 0-8 8v12l3-3 2.5 2.5L12 19l2.5 2.5L17 19l3 3V10a8 8 0 0 0-8-8Z"/>'),
         user: SVG('<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>'),
         sun: SVG('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'),
       };
@@ -3006,6 +3065,7 @@
         rows.push(
           item(I.plus, 'New chat', () => document.getElementById('session-new').click()),
           item(I.search, 'Search chats', () => document.getElementById('sessions-search-btn').click(), {key: 'Ctrl+K'}),
+          ...((temporary || !currentMessages.length) ? [item(I.ghost, temporary ? 'Exit temporary chat' : 'Temporary chat', () => toggleTemporary())] : []),
           item(I.user, 'Account…', () => window.openAccount()),
           sep(), head('Theme'));
         ['system', 'dark', 'light'].forEach(p => rows.push(item(I.sun, p[0].toUpperCase() + p.slice(1), () => {
