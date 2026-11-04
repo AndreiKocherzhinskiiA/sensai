@@ -79,6 +79,9 @@ class SessionStore:
         try:
             with self._connect() as conn:
                 conn.executescript(SCHEMA)
+                columns = {row["name"] for row in conn.execute("PRAGMA table_info(sessions)")}
+                if "pinned" not in columns:
+                    conn.execute("ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
         except sqlite3.DatabaseError as exc:
             raise DatabaseError(
                 f"Database is corrupted or unreadable: {self.db_path}"
@@ -136,6 +139,14 @@ class SessionStore:
                 "ORDER BY s.updated_at DESC"
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def set_session_pinned(self, session_id: str, pinned: bool) -> dict | None:
+        with self._transaction() as conn:
+            conn.execute(
+                "UPDATE sessions SET pinned = ? WHERE id = ?",
+                (1 if pinned else 0, session_id),
+            )
+        return self.get_session(session_id)
 
     def rename_session(self, session_id: str, title: str) -> dict | None:
         with self._transaction() as conn:

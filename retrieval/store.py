@@ -118,5 +118,10 @@ class VectorStore:
             })
         return chunks
 
+    def delete_source(self, source_file: str) -> int:
+        cursor = self.conn.execute("DELETE FROM chunks WHERE source_file = ?", (source_file,))
+        self.conn.commit()
+        return cursor.rowcount
+
     def close(self):
         self.conn.close()

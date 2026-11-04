@@ -207,6 +207,22 @@
     .document-sources { margin: .6rem 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: .4rem; }
     .document-sources li { border: 1px solid var(--line); border-radius: 8px; padding: .25rem .55rem; color: var(--ink-2); font-size: .78rem; }
     .document-sources:empty { display: none; }
+    .document-sources li { display: inline-flex; align-items: center; gap: .4rem; }
+    .doc-del { border: 0; background: transparent; color: var(--ink-3); font: 600 1rem/1 var(--sans); width: 22px; height: 22px; border-radius: 50%; cursor: pointer; }
+    .doc-del:hover:not(:disabled) { color: var(--bad); background: var(--bad-wash); }
+    .doc-del:disabled { opacity: .5; cursor: wait; }
+    .document-upload { padding: .5rem; border: 1px dashed transparent; border-radius: 10px; transition: border-color .2s, background-color .2s; }
+    .document-upload.drag { border-color: var(--acc); background: var(--acc-wash); }
+    .attach { position: relative; flex: none; align-self: flex-end; }
+    .attach-btn { width: 40px; height: 40px; margin: 1px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--line); background: var(--raise); color: var(--ink-2); cursor: pointer; transition: transform .25s var(--spring), color .2s, background-color .2s; }
+    .attach-btn:hover { color: var(--ink); background: var(--hover-bg); }
+    .attach-btn[aria-expanded="true"] { transform: rotate(45deg); color: var(--acc-text); }
+    .attach-btn svg { width: 18px; height: 18px; }
+    .attach-menu { position: absolute; bottom: calc(100% + 10px); left: 0; width: max-content; max-width: min(20rem, calc(100vw - 2rem)); margin: 0; padding: .3rem; list-style: none; z-index: 30; border-radius: 12px; border: 1px solid var(--line-strong); background: var(--panel-solid); box-shadow: 0 20px 50px -18px var(--shadow); transform-origin: bottom left; animation: pop .25s var(--out); }
+    .attach-menu[hidden] { display: none; }
+    .attach-menu button { display: grid; width: 100%; gap: .1rem; text-align: left; padding: .5rem .7rem; border: 0; border-radius: 8px; background: transparent; color: var(--ink); font: 500 .875rem var(--sans); cursor: pointer; }
+    .attach-menu button:hover, .attach-menu button:focus-visible { background: var(--raise); outline: none; }
+    .attach-menu small { color: var(--ink-3); font-size: .76rem; font-weight: 400; }
     /* ---------- Toolbar ---------- */
     .toolbar { position: relative; z-index: 10; }
     .toolbar .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding-block: .75rem; }
@@ -261,6 +277,11 @@
     .dd-opt svg { grid-column: 2; grid-row: 1 / span 2; width: 16px; height: 16px; color: var(--acc-text); opacity: 0; transform: scale(.6); transition: opacity .2s, transform .3s var(--spring); }
     .dd-opt[aria-selected="true"] svg { opacity: 1; transform: none; }
     .dd-opt.active { background: var(--raise); }
+    .dd-search { position: sticky; top: -.3rem; margin: -.3rem -.3rem .3rem; padding: .4rem; background: var(--panel-solid); z-index: 1; }
+    .dd-search input { width: 100%; height: 32px; padding: 0 .6rem; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font: 500 .82rem var(--mono); outline: none; cursor: text; }
+    .dd-search input:focus { border-color: var(--acc); }
+    .dd-empty { padding: .5rem .6rem; font-size: .8rem; color: var(--ink-3); }
+    #model-list .dd-opt .t { font-family: var(--mono); font-size: .82rem; }
     .dd-opt[aria-selected="true"] .t { color: var(--acc-text); }
 
     .btn {
@@ -609,28 +630,81 @@
     #sessions-list li:hover .s-del, #sessions-list .s-del:focus-visible { opacity: 1; }
     #sessions-list .s-del:hover { color: var(--bad); }
     #sessions-empty { color: var(--ink-3); font-size: .85rem; padding: 1rem; text-align: center; }
-    .s-search { padding: .6rem .75rem 0; }
-    .s-search input { width: 100%; box-sizing: border-box; padding: .5rem .7rem; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font: inherit; font-size: .85rem; }
-    .s-search input:focus { outline: none; border-color: var(--line-strong); }
+    .s-search { padding: .4rem .75rem 0; }
+    #sessions-search-btn { justify-content: flex-start; gap: .5rem; height: 40px; font-weight: 500; border-color: transparent; background: transparent; }
+    #sessions-search-btn:hover { border-color: var(--line); background: var(--hover-bg); }
+    #sessions-list .s-pin.on { opacity: 1; color: var(--acc-text); }
+    #sessions-list .s-pin.on svg { fill: currentColor; }
+
+    #search-pop {
+      position: fixed; z-index: 60; top: 12vh; left: 50%; transform: translateX(-50%);
+      width: min(38rem, calc(100vw - 2rem)); max-height: min(30rem, 76vh); display: flex; flex-direction: column; overflow: hidden;
+      border-radius: 18px; border: 1px solid var(--line-strong); background: var(--panel-solid);
+      box-shadow: 0 30px 80px -20px var(--shadow), 0 4px 14px -6px var(--shadow);
+      animation: sp-in .22s var(--out);
+    }
+    #search-pop[hidden] { display: none; }
+    @keyframes sp-in { from { opacity: 0; transform: translateX(-50%) translateY(-8px) scale(.98); } }
+    .sp-head { display: flex; align-items: center; gap: .5rem; padding: .35rem .6rem .35rem 1.2rem; border-bottom: 1px solid var(--line); }
+    .sp-head input { flex: 1; min-width: 0; height: 52px; border: 0; outline: none; background: transparent; color: var(--ink); font: 400 1rem var(--sans); }
+    .sp-head input::placeholder { color: var(--ink-3); }
+    .sp-close { width: 34px; height: 34px; border: 0; border-radius: 10px; background: transparent; color: var(--ink-3); display: grid; place-items: center; cursor: pointer; transition: color .2s, background-color .2s; }
+    .sp-close:hover { color: var(--ink); background: var(--hover-bg); }
+    .sp-close svg { width: 16px; height: 16px; }
+    .sp-list { overflow-y: auto; padding: .4rem .5rem .6rem; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+    .sp-group { padding: .8rem .7rem .3rem; font-size: .8rem; color: var(--ink-3); }
+    .sp-item { display: flex; align-items: center; gap: .9rem; width: 100%; padding: .65rem .7rem; border: 0; border-radius: 10px; background: transparent; color: var(--ink); font: 400 .94rem var(--sans); text-align: left; cursor: pointer; }
+    .sp-item.sel, .sp-item:hover { background: var(--raise); }
+    .sp-item svg { width: 18px; height: 18px; color: var(--ink-2); }
+    .sp-item span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sp-empty { padding: 1.4rem; text-align: center; color: var(--ink-3); font-size: .88rem; }
     #sessions-list .s-group { display: block; padding: .7rem .65rem .25rem; font-size: .68rem; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-3); }
     #sessions-list li.s-group-li { border: 0; background: none !important; }
-    #sessions-list .s-act { background: none; border: 0; color: var(--ink-3); cursor: pointer; padding: .4rem .45rem; border-radius: 8px; line-height: 1; opacity: 0; display: inline-flex; }
-    #sessions-list .s-act svg { width: 14px; height: 14px; }
+    #sessions-list .s-act { background: none; border: 0; color: var(--ink-3); cursor: pointer; padding: .4rem .36rem; border-radius: 8px; line-height: 1; opacity: 0; display: inline-flex; }
+    #sessions-list .s-act svg { width: 15px; height: 15px; }
     #sessions-list li:hover .s-act, #sessions-list li:focus-within .s-act, #sessions-list li.confirm .s-act, #sessions-list li.renaming .s-act { opacity: 1; }
     #sessions-list .s-act:hover { color: var(--ink); background: var(--raise); }
     #sessions-list .s-act.danger:hover { color: var(--bad); }
     #sessions-list .s-badge { display: inline-block; margin-left: .35rem; padding: 0 .4rem; border-radius: 99px; background: var(--raise); color: var(--ink-3); font-size: .66rem; }
     #sessions-list .s-rename { flex: 1; min-width: 0; margin: .3rem; padding: .3rem .5rem; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--ink); font: inherit; font-size: .86rem; }
-    #sessions-list li.confirm { background: var(--bad-wash) !important; border-color: color-mix(in oklch, var(--bad) 45%, transparent); }
-    #sessions-list .s-confirm-text { flex: 1; padding: .55rem .65rem; font-size: .82rem; color: var(--bad); }
-    #sessions-list .s-yes { background: var(--bad); color: #fff; border: 0; border-radius: 8px; padding: .3rem .6rem; font-size: .78rem; cursor: pointer; }
-    #sessions-list .s-no { background: none; border: 0; color: var(--ink-2); padding: .3rem .5rem; font-size: .78rem; cursor: pointer; }
+    #sessions-list li.confirm { display: block; padding: .75rem .8rem .7rem; background: var(--bad-wash) !important; border: 1px solid color-mix(in oklch, var(--bad) 28%, transparent); animation: confirm-in .22s var(--out); }
+    @keyframes confirm-in { from { opacity: 0; transform: scale(.97); } }
+    .s-confirm-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .84rem; font-weight: 600; color: var(--ink); }
+    .s-confirm-sub { display: block; margin: .15rem 0 .65rem; font-size: .76rem; color: var(--ink-3); }
+    .s-confirm-btns { display: flex; gap: .4rem; }
+    .s-confirm-btns button { flex: 1; height: 30px; border-radius: 8px; font: 600 .78rem var(--sans); cursor: pointer; transition: background-color .15s, border-color .15s, filter .15s, transform .15s var(--out); }
+    .s-confirm-btns button:active { transform: scale(.97); }
+    .s-confirm-btns .s-no { border: 1px solid var(--line-strong); background: transparent; color: var(--ink-2); }
+    .s-confirm-btns .s-no:hover { background: var(--hover-bg); color: var(--ink); }
+    .s-confirm-btns .s-yes { border: 1px solid var(--bad); background: var(--bad); color: var(--bg); }
+    .s-confirm-btns .s-yes:hover { filter: brightness(1.08); }
     .s-foot { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .6rem .85rem; border-top: 1px solid var(--line); font-size: .76rem; color: var(--ink-3); }
     .s-foot .btn:hover { color: var(--bad); }
+    .s-foot.confirming { display: block; padding: .75rem .85rem; background: var(--bad-wash); }
+    .s-foot.confirming .s-confirm-title { font-size: .82rem; }
+
+    .s-search { position: relative; display: flex; gap: .3rem; align-items: center; }
+    #sessions-search-btn { flex: 1; min-width: 0; }
+    #sort-btn { flex: none; width: 40px; height: 40px; padding: 0; justify-content: center; border-color: transparent; background: transparent; }
+    #sort-btn:hover, #sort-btn[aria-expanded="true"] { border-color: var(--line); background: var(--hover-bg); color: var(--ink); }
+    #sort-btn svg { width: 16px; height: 16px; }
+    #sort-menu { position: absolute; top: calc(100% + 4px); right: .75rem; z-index: 35; width: 14.5rem; margin: 0; padding: .3rem; list-style: none; border-radius: 12px; border: 1px solid var(--line-strong); background: var(--panel-solid); box-shadow: 0 20px 50px -18px var(--shadow), 0 2px 8px -4px var(--shadow); transform-origin: top right; animation: pop .22s var(--out); }
+    #sort-menu[hidden] { display: none; }
+    #sort-menu .sm-head { padding: .4rem .6rem .25rem; font-size: .68rem; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-3); }
+    #sort-menu button { display: flex; align-items: center; justify-content: space-between; gap: .6rem; width: 100%; padding: .5rem .6rem; border: 0; border-radius: 8px; background: transparent; color: var(--ink); font: 500 .85rem var(--sans); text-align: left; cursor: pointer; }
+    #sort-menu button:hover, #sort-menu button:focus-visible { background: var(--raise); outline: none; }
+    #sort-menu button svg { width: 15px; height: 15px; color: var(--acc-text); opacity: 0; }
+    #sort-menu button[aria-checked="true"] svg { opacity: 1; }
+    #sort-menu button[aria-checked="true"] { color: var(--acc-text); }
     #cmd-hints {
       position: absolute; left: 0; right: 0; bottom: calc(100% - .4rem); z-index: 30; max-height: 16rem; overflow-y: auto;
       border-radius: 12px; border: 1px solid var(--line-strong); background: var(--panel-solid); box-shadow: 0 10px 30px var(--shadow); padding: .3rem;
+      overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent;
     }
+    #cmd-hints::-webkit-scrollbar { width: 8px; }
+    #cmd-hints::-webkit-scrollbar-track { background: transparent; margin-block: .4rem; }
+    #cmd-hints::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 8px; border: 2px solid var(--panel-solid); }
+    #cmd-hints::-webkit-scrollbar-thumb:hover { background: var(--ink-3); }
     #cmd-hints[hidden] { display: none; }
     #cmd-hints .hint { display: flex; align-items: baseline; gap: .6rem; padding: .4rem .6rem; border-radius: 8px; cursor: pointer; font-size: .84rem; }
     #cmd-hints .hint.sel, #cmd-hints .hint:hover { background: var(--hover-bg); }
@@ -664,13 +738,28 @@
     </header>
     <div id="sessions-new-wrap"><button id="session-new" class="btn" type="button" title="Start a new chat (/new)">
       <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>New chat</button></div>
-    <div class="s-search"><input id="sessions-search" type="search" placeholder="Search chats…" aria-label="Search chats" autocomplete="off"></div>
+    <div class="s-search"><button id="sessions-search-btn" class="btn" type="button" aria-haspopup="dialog" aria-controls="search-pop" title="Search chats (Ctrl+K)">
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>Search chats</button>
+      <button id="sort-btn" class="btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="sort-menu" aria-label="Sort chats" title="Sort chats">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg>
+      </button>
+      <ul id="sort-menu" role="menu" aria-label="Sort chats by" hidden></ul>
+    </div>
     <ul id="sessions-list"></ul>
     <footer class="s-foot">
       <span id="sessions-count"></span>
       <button id="sessions-delete-all" class="btn" type="button">Delete all</button>
     </footer>
   </aside>
+  <div id="search-pop" role="dialog" aria-label="Search chats" hidden>
+    <div class="sp-head">
+      <input id="search-pop-input" type="text" placeholder="Search chats…" aria-label="Search chats" autocomplete="off" spellcheck="false">
+      <button id="search-pop-close" class="sp-close" type="button" aria-label="Close search" title="Close (Esc)">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/></svg>
+      </button>
+    </div>
+    <div id="search-pop-list" class="sp-list" role="listbox" aria-label="Chats"></div>
+  </div>
   <div id="app">
   <header>
     <div class="wrap">
@@ -733,7 +822,7 @@
         </select>
       </label>
       <label class="chip">Model
-        <input id="model-input" type="text" value="llama3.2:1b" spellcheck="false" autocomplete="off">
+        <input id="model-input" type="hidden" value="llama3.2:1b">
       </label>
       <span class="grow"></span>
       <label class="chip" id="tools-toggle" hidden><input id="tools-enabled" type="checkbox" checked>Allow tools</label>
@@ -754,12 +843,11 @@
         <h2>Knowledge base</h2>
         <p>Upload UTF-8 .txt or .md files (up to 5 MB) to make them available to RAG.</p>
       </div>
-      <form id="document-upload-form" class="document-upload">
-        <label for="document-file">Choose a document</label>
-        <input id="document-file" name="file" type="file" accept=".txt,.md,text/plain,text/markdown" required>
-        <button id="document-upload-btn" type="submit">Upload and index</button>
-        <span id="document-upload-status" role="status" aria-live="polite">No upload yet.</span>
-      </form>
+      <div id="document-upload-form" class="document-upload">
+        <input id="document-file" name="file" type="file" accept=".txt,.md,text/plain,text/markdown" multiple hidden>
+        <button id="document-upload-btn" type="button">Choose files…</button>
+        <span id="document-upload-status" role="status" aria-live="polite">Files upload as soon as you pick them. Drop files here too.</span>
+      </div>
       <ul id="document-sources" class="document-sources" aria-label="Indexed documents"></ul>
     </div>
   </section>
@@ -782,6 +870,15 @@
           <small>Describe the goal in your message. Review and approve each execution. Close this panel to send a normal message.</small>
         </details>
         <form id="form">
+          <div class="attach">
+            <button id="attach-btn" class="attach-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="attach-menu" aria-label="Add files" title="Add files">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
+            </button>
+            <ul id="attach-menu" class="attach-menu" role="menu" hidden>
+              <li role="none"><button type="button" role="menuitem" data-act="upload">Upload documents<small>.txt or .md, up to 5 MB, added to the knowledge base</small></button></li>
+              <li role="none"><button type="button" role="menuitem" data-act="manage">Manage documents<small>See or delete uploaded files</small></button></li>
+            </ul>
+          </div>
           <textarea id="message" rows="1" autocomplete="off" aria-label="Message" placeholder="Ask Sensai anything…"></textarea>
           <button id="cancel" class="stop" type="button" disabled aria-label="Stop generating" title="Stop (Esc)">
             <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1.5"/></svg>
@@ -813,14 +910,17 @@
       document.getElementById('policy-status').textContent = 'Content policy status unavailable';
     });
     /* ---------- Knowledge base document upload ---------- */
+    let pickDocuments = () => {};
     (function () {
       const toggle = document.getElementById('documents-btn');
       const panel = document.getElementById('documents-panel');
-      const form = document.getElementById('document-upload-form');
+      const dropZone = document.getElementById('document-upload-form');
       const picker = document.getElementById('document-file');
       const submit = document.getElementById('document-upload-btn');
       const status = document.getElementById('document-upload-status');
       const sources = document.getElementById('document-sources');
+      pickDocuments = () => picker.click();
+      submit.addEventListener('click', () => picker.click());
 
       function setUploadStatus(message, kind = '') {
         status.textContent = message;
@@ -835,7 +935,30 @@
           sources.replaceChildren();
           rows.forEach((source) => {
             const item = document.createElement('li');
-            item.textContent = `${source.source_file} · ${source.chunks_count} chunk(s)`;
+            const label = document.createElement('span');
+            label.textContent = `${source.source_file} · ${source.chunks_count} chunk(s)`;
+            const del = document.createElement('button');
+            del.type = 'button';
+            del.className = 'doc-del';
+            del.textContent = '×';
+            del.title = `Delete ${source.source_file}`;
+            del.setAttribute('aria-label', `Delete ${source.source_file}`);
+            del.addEventListener('click', async () => {
+              del.disabled = true;
+              try {
+                const r = await fetch('/api/retrieval/sources?source_file=' + encodeURIComponent(source.source_file), { method: 'DELETE' });
+                if (!r.ok) {
+                  const body = await r.json().catch(() => ({}));
+                  throw new Error(typeof body.detail === 'string' ? body.detail : 'Delete failed.');
+                }
+                setUploadStatus(`Deleted ${source.source_file}.`, 'success');
+                await refreshSources();
+              } catch (error) {
+                del.disabled = false;
+                setUploadStatus(error.message, 'error');
+              }
+            });
+            item.append(label, del);
             sources.appendChild(item);
           });
         } catch (error) {
@@ -850,32 +973,37 @@
         if (opening) refreshSources();
       });
 
-      form.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        const file = picker.files && picker.files[0];
-        if (!file) {
-          setUploadStatus('Choose a .txt or .md file first.', 'error');
-          return;
-        }
+      async function uploadFiles(files) {
+        files = [...files];
+        if (!files.length) return;
+        if (panel.hidden) { panel.hidden = false; toggle.setAttribute('aria-expanded', 'true'); }
         submit.disabled = true;
-        setUploadStatus(`Uploading ${file.name}…`);
-        try {
-          const data = new FormData();
-          data.append('file', file);
-          const response = await fetch('/api/retrieval/upload', { method: 'POST', body: data });
-          const result = await response.json();
-          if (!response.ok) {
-            throw new Error(typeof result.detail === 'string' ? result.detail : 'Upload failed.');
+        const done = [];
+        const failed = [];
+        for (const file of files) {
+          setUploadStatus(`Uploading ${file.name}…`);
+          try {
+            const data = new FormData();
+            data.append('file', file);
+            const response = await fetch('/api/retrieval/upload', { method: 'POST', body: data });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : 'Upload failed.');
+            done.push(file.name);
+          } catch (error) {
+            failed.push(`${file.name}: ${error.message || 'Upload failed.'}`);
           }
-          setUploadStatus(result.message || `Indexed ${result.filename}.`, 'success');
-          picker.value = '';
-          await refreshSources();
-        } catch (error) {
-          setUploadStatus(error.message || 'Upload failed.', 'error');
-        } finally {
-          submit.disabled = false;
         }
-      });
+        picker.value = '';
+        submit.disabled = false;
+        if (failed.length) setUploadStatus(failed.join(' · '), 'error');
+        else setUploadStatus(`Indexed ${done.join(', ')}.`, 'success');
+        await refreshSources();
+      }
+      picker.addEventListener('change', () => uploadFiles(picker.files || []));
+      ['dragenter', 'dragover'].forEach(n => dropZone.addEventListener(n, (e) => { e.preventDefault(); dropZone.classList.add('drag'); }));
+      ['dragleave', 'drop'].forEach(n => dropZone.addEventListener(n, (e) => { e.preventDefault(); dropZone.classList.remove('drag'); }));
+      dropZone.addEventListener('drop', (e) => uploadFiles(e.dataTransfer ? e.dataTransfer.files : []));
+      refreshSources();
     })();
 
     /* ---------- Appearance settings ---------- */
@@ -1092,6 +1220,140 @@
       } catch (error) { addLine('error', error.message, false); }
       finally { mcpTools.disabled = false; }
     });
+
+    const modelHost = modelInput.parentElement;
+    const modelBtn = document.createElement('button');
+    modelBtn.type = 'button';
+    modelBtn.className = 'dd-btn';
+    modelBtn.setAttribute('aria-haspopup', 'listbox');
+    modelBtn.setAttribute('aria-expanded', 'false');
+    modelBtn.setAttribute('aria-controls', 'model-list');
+    modelBtn.innerHTML = '<span class="dd-val" style="font-family:var(--mono);font-size:.82rem"></span>' + CHEV;
+    const modelVal = modelBtn.firstChild;
+    const modelPanel = document.createElement('div');
+    modelPanel.className = 'dd-list';
+    modelPanel.hidden = true;
+    modelPanel.innerHTML = '<div class="dd-search"><input type="text" placeholder="Search models…" spellcheck="false" autocomplete="off" aria-label="Search models"></div><ul id="model-list" role="listbox" style="list-style:none;margin:0;padding:0"></ul>';
+    const modelSearch = modelPanel.querySelector('input');
+    const modelList = modelPanel.querySelector('ul');
+    modelInput.before(modelBtn);
+    modelHost.appendChild(modelPanel);
+    let modelNames = [];
+    let modelShown = [];
+    let modelActive = 0;
+    function syncModelLabel() { modelVal.textContent = modelInput.value || 'Select model'; }
+    function renderModels() {
+      const q = modelSearch.value.trim().toLowerCase();
+      if (modelInput.value && !modelNames.includes(modelInput.value)) modelNames.unshift(modelInput.value);
+      modelShown = modelNames.filter(n => n.toLowerCase().includes(q)).map(n => ({name: n, custom: false}));
+      if (q && !modelNames.some(n => n.toLowerCase() === q)) modelShown.push({name: modelSearch.value.trim(), custom: true});
+      modelList.replaceChildren();
+      modelShown.forEach((m, i) => {
+        const li = document.createElement('li');
+        li.className = 'dd-opt';
+        li.id = 'model-opt-' + i;
+        li.setAttribute('role', 'option');
+        li.setAttribute('aria-selected', m.name === modelInput.value);
+        li.dataset.index = i;
+        const t = document.createElement('span');
+        t.className = 't';
+        t.textContent = m.custom ? 'Use "' + m.name + '"' : m.name;
+        li.appendChild(t);
+        li.insertAdjacentHTML('beforeend', CHECK);
+        modelList.appendChild(li);
+      });
+      if (!modelShown.length) {
+        const e = document.createElement('li');
+        e.className = 'dd-empty';
+        e.textContent = 'No models found. Type a name to use it.';
+        modelList.appendChild(e);
+      }
+      setModelActive(Math.max(0, modelShown.findIndex(m => m.name === modelInput.value)));
+    }
+    function setModelActive(i) {
+      if (!modelShown.length) return;
+      modelActive = (i + modelShown.length) % modelShown.length;
+      [...modelList.children].forEach((li, j) => li.classList.toggle('active', j === modelActive));
+      modelSearch.setAttribute('aria-activedescendant', 'model-opt-' + modelActive);
+      modelList.children[modelActive].scrollIntoView({block: 'nearest'});
+    }
+    function openModels() {
+      if (!modelPanel.hidden) return;
+      modelSearch.value = '';
+      renderModels();
+      modelPanel.hidden = false;
+      modelPanel.classList.remove('right');
+      if (modelPanel.getBoundingClientRect().right > innerWidth - 8) modelPanel.classList.add('right');
+      modelHost.classList.add('dd-open');
+      modelBtn.setAttribute('aria-expanded', 'true');
+      modelSearch.focus({preventScroll: true});
+    }
+    function closeModels(refocus) {
+      if (modelPanel.hidden) return;
+      modelPanel.hidden = true;
+      modelHost.classList.remove('dd-open');
+      modelBtn.setAttribute('aria-expanded', 'false');
+      if (refocus) modelBtn.focus();
+    }
+    function chooseModel(i) {
+      const m = modelShown[i];
+      if (!m) return;
+      modelInput.value = m.name;
+      syncModelLabel();
+      closeModels(true);
+    }
+    modelBtn.addEventListener('click', (e) => { e.preventDefault(); modelPanel.hidden ? openModels() : closeModels(true); });
+    modelBtn.addEventListener('keydown', (e) => {
+      if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)) { e.preventDefault(); openModels(); }
+    });
+    modelPanel.addEventListener('click', (e) => {
+      e.preventDefault();
+      const li = e.target.closest('.dd-opt');
+      if (li) chooseModel(+li.dataset.index);
+    });
+    modelPanel.addEventListener('pointermove', (e) => {
+      const li = e.target.closest('.dd-opt');
+      if (li && +li.dataset.index !== modelActive) setModelActive(+li.dataset.index);
+    });
+    modelSearch.addEventListener('input', renderModels);
+    modelSearch.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setModelActive(modelActive + 1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); setModelActive(modelActive - 1); }
+      else if (e.key === 'Enter') { e.preventDefault(); chooseModel(modelActive); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeModels(true); }
+      else if (e.key === 'Tab') { closeModels(false); }
+    });
+    document.addEventListener('pointerdown', (e) => { if (!modelHost.contains(e.target)) closeModels(false); });
+    const modelValueProp = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    Object.defineProperty(modelInput, 'value', {
+      get() { return modelValueProp.get.call(this); },
+      set(v) { modelValueProp.set.call(this, v); syncModelLabel(); },
+    });
+    syncModelLabel();
+    fetch('/api/models').then(r => r.json()).then(info => {
+      modelNames = info.models || [];
+      if (modelInput.value && !modelNames.includes(modelInput.value)) modelNames.unshift(modelInput.value);
+      if (!modelPanel.hidden) renderModels();
+    }).catch(() => { modelNames = [modelInput.value]; });
+
+    (function () {
+      const btn = document.getElementById('attach-btn');
+      const menu = document.getElementById('attach-menu');
+      function setOpen(open) {
+        menu.hidden = !open;
+        btn.setAttribute('aria-expanded', String(open));
+      }
+      btn.addEventListener('click', () => setOpen(menu.hidden));
+      menu.addEventListener('click', (e) => {
+        const item = e.target.closest('button[data-act]');
+        if (!item) return;
+        setOpen(false);
+        if (item.dataset.act === 'upload') pickDocuments();
+        else document.getElementById('documents-btn').click();
+      });
+      document.addEventListener('pointerdown', (e) => { if (!btn.parentElement.contains(e.target)) setOpen(false); });
+      menu.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); btn.focus(); } });
+    })();
 
     const personaDD = enhanceSelect(personaSelect);
     const modeDD = enhanceSelect(modeSelect);
@@ -1383,9 +1645,11 @@
       return new Date(ts * 1000).toLocaleDateString();
     }
 
-    const ICON_EDIT = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2.5l2.5 2.5L5.5 13H3v-2.5z"/></svg>';
-    const ICON_DEL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4"/></svg>';
-    const sessionsSearch = document.getElementById('sessions-search');
+    const SVG = body => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + body + '</svg>';
+    const ICON_EDIT = SVG('<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>');
+    const ICON_DEL = SVG('<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/>');
+    const ICON_PIN = SVG('<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>');
+    const ICON_CHAT = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3.2c-3.8 0-6.8 2.5-6.8 5.7 0 1.4.6 2.7 1.6 3.7L4 16l3.3-1.3c.8.3 1.7.4 2.7.4 3.8 0 6.8-2.5 6.8-5.6S13.800 3.200 10 3.200z"/></svg>';
     const sessionsCount = document.getElementById('sessions-count');
     let confirmingId = null;
     let renamingId = null;
@@ -1397,21 +1661,71 @@
       return days <= 0 ? 'Today' : days === 1 ? 'Yesterday' : days < 7 ? 'This week' : 'Older';
     }
 
+    const SORTS = {
+      updated:  {label: 'Last activity', cmp: (a, b) => b.updated_at - a.updated_at, group: x => dayGroup(x.updated_at)},
+      created:  {label: 'Newest first',  cmp: (a, b) => b.created_at - a.created_at, group: x => dayGroup(x.created_at)},
+      oldest:   {label: 'Oldest first',  cmp: (a, b) => a.created_at - b.created_at, group: () => 'All chats'},
+      title:    {label: 'Title A–Z', cmp: (a, b) => (a.title || '').localeCompare(b.title || '', undefined, {sensitivity: 'base', numeric: true}), group: () => 'All chats'},
+      messages: {label: 'Most messages', cmp: (a, b) => b.turns_count - a.turns_count || b.updated_at - a.updated_at, group: () => 'All chats'},
+    };
+    let sortMode = 'updated';
+    try { const s = localStorage.getItem('sensai_sort'); if (SORTS[s]) sortMode = s; } catch (e) {}
+
+    function orderedSessions(list) {
+      const cmp = SORTS[sortMode].cmp;
+      return [...list.filter(x => x.pinned).sort(cmp), ...list.filter(x => !x.pinned).sort(cmp)];
+    }
+
+    (function () {
+      const btn = document.getElementById('sort-btn');
+      const menu = document.getElementById('sort-menu');
+      function paint() {
+        menu.replaceChildren();
+        menu.appendChild(el('li', 'sm-head', 'Sort chats by'));
+        Object.entries(SORTS).forEach(([key, s]) => {
+          const li = el('li'); li.setAttribute('role', 'none');
+          const b = el('button'); b.type = 'button'; b.setAttribute('role', 'menuitemradio');
+          b.setAttribute('aria-checked', String(key === sortMode));
+          b.append(el('span', null, s.label));
+          b.insertAdjacentHTML('beforeend', SVG('<path d="M20 6 9 17l-5-5"/>'));
+          b.addEventListener('click', () => {
+            sortMode = key;
+            try { localStorage.setItem('sensai_sort', key); } catch (e) {}
+            setOpen(false); paint(); renderSessions();
+          });
+          li.appendChild(b); menu.appendChild(li);
+        });
+      }
+      function setOpen(open) {
+        menu.hidden = !open;
+        btn.setAttribute('aria-expanded', String(open));
+        if (open) { paint(); const cur = menu.querySelector('[aria-checked="true"]'); if (cur) cur.focus(); }
+      }
+      btn.addEventListener('click', () => setOpen(menu.hidden));
+      btn.title = 'Sort chats';
+      document.addEventListener('pointerdown', e => { if (!menu.hidden && !menu.contains(e.target) && !btn.contains(e.target)) setOpen(false); });
+      menu.addEventListener('keydown', e => {
+        if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); btn.focus(); }
+        const items = [...menu.querySelectorAll('button')], i = items.indexOf(document.activeElement);
+        if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+        if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+      });
+    })();
+
     function renderSessions() {
       sessionsList.replaceChildren();
-      const q = sessionsSearch.value.trim().toLowerCase();
       const saved = knownSessions.filter(x => x.turns_count > 0 || x.id === sessionId);
-      const items = saved.filter(x => !q || (x.title || '').toLowerCase().includes(q));
+      const items = orderedSessions(saved);
       sessionsCount.textContent = saved.filter(x => x.turns_count > 0).length + ' saved';
       if (!items.length) {
-        const empty = el('li', null, q ? 'No chats match "' + sessionsSearch.value.trim() + '".' : 'No saved chats yet.');
+        const empty = el('li', null, 'No saved chats yet.');
         empty.id = 'sessions-empty';
         sessionsList.appendChild(empty);
         return;
       }
       let lastGroup = null;
       items.forEach(item => {
-        const group = dayGroup(item.updated_at);
+        const group = item.pinned ? 'Pinned' : SORTS[sortMode].group(item);
         if (group !== lastGroup) {
           const g = el('li', 's-group-li');
           g.appendChild(el('span', 's-group', group));
@@ -1425,7 +1739,11 @@
           const no = el('button', 's-no', 'Cancel'); no.type = 'button';
           yes.addEventListener('click', () => { confirmingId = null; deleteSession(item.id, true); });
           no.addEventListener('click', () => { confirmingId = null; renderSessions(); });
-          li.append(el('span', 's-confirm-text', 'Delete "' + (item.title || 'chat') + '"?'), yes, no);
+          li.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); confirmingId = null; renderSessions(); } });
+          const btns = el('div', 's-confirm-btns'); btns.append(no, yes);
+          li.append(el('span', 's-confirm-title', 'Delete “' + (item.title || 'chat') + '”?'),
+                    el('span', 's-confirm-sub', 'This chat and its messages are removed for good.'), btns);
+          setTimeout(() => no.focus(), 0);
         } else if (renamingId === item.id) {
           li.classList.add('renaming');
           const field = el('input', 's-rename'); field.value = item.title || '';
@@ -1447,24 +1765,100 @@
           const open = el('button', 's-open');
           open.type = 'button';
           const title = el('span', 's-title', item.title || 'New session');
-          const turns = Math.floor(item.turns_count / 2);
-          const meta = el('span', 's-meta', turns + (turns === 1 ? ' turn' : ' turns') + ' \u00b7 ' + ago(item.updated_at));
-          if (item.persona_id) meta.appendChild(el('span', 's-badge', item.persona_id));
-          open.append(title, meta);
+          open.appendChild(title);
           open.addEventListener('click', () => switchSession(item.id));
           open.addEventListener('dblclick', () => { renamingId = item.id; renderSessions(); });
+          const pin = el('button', 's-act s-pin' + (item.pinned ? ' on' : '')); pin.type = 'button'; pin.innerHTML = ICON_PIN;
+          pin.title = item.pinned ? 'Unpin' : 'Pin'; pin.setAttribute('aria-label', item.pinned ? 'Unpin chat' : 'Pin chat');
+          pin.setAttribute('aria-pressed', String(!!item.pinned));
+          pin.addEventListener('click', () => pinSession(item.id, !item.pinned));
           const edit = el('button', 's-act'); edit.type = 'button'; edit.innerHTML = ICON_EDIT;
           edit.title = 'Rename'; edit.setAttribute('aria-label', 'Rename chat');
           edit.addEventListener('click', () => { renamingId = item.id; renderSessions(); });
           const del = el('button', 's-act danger'); del.type = 'button'; del.innerHTML = ICON_DEL;
           del.title = 'Delete'; del.setAttribute('aria-label', 'Delete chat');
           del.addEventListener('click', () => { confirmingId = item.id; renderSessions(); });
-          li.append(open, edit, del);
+          li.append(open, pin, edit, del);
         }
         sessionsList.appendChild(li);
       });
     }
-    sessionsSearch.addEventListener('input', renderSessions);
+
+    async function pinSession(id, pinned) {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/pin`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({pinned}) });
+      if (!res.ok) addLine('error', 'Could not ' + (pinned ? 'pin' : 'unpin') + ' the chat (HTTP ' + res.status + ').', false);
+      await refreshSessions();
+    }
+
+    (function () {
+      const pop = document.getElementById('search-pop');
+      const field = document.getElementById('search-pop-input');
+      const results = document.getElementById('search-pop-list');
+      const trigger = document.getElementById('sessions-search-btn');
+      let shown = [], sel = 0;
+
+      function render() {
+        const q = field.value.trim().toLowerCase();
+        const saved = knownSessions.filter(x => x.turns_count > 0 || x.id === sessionId);
+        shown = orderedSessions(saved)
+          .filter(x => !q || (x.title || '').toLowerCase().includes(q));
+        results.replaceChildren();
+        if (!shown.length) { results.appendChild(el('div', 'sp-empty', q ? 'No chats match "' + field.value.trim() + '".' : 'No saved chats yet.')); return; }
+        let last = null;
+        shown.forEach((item, i) => {
+          const g = item.pinned ? 'Pinned' : (sortMode === 'updated' ? 'Recent chats' : 'All chats');
+          if (g !== last) { results.appendChild(el('div', 'sp-group', g)); last = g; }
+          const b = el('button', 'sp-item' + (i === sel ? ' sel' : ''));
+          b.type = 'button'; b.dataset.index = i; b.setAttribute('role', 'option');
+          b.innerHTML = ICON_CHAT;
+          b.appendChild(el('span', null, item.title || 'New session'));
+          b.addEventListener('click', () => { choose(i); });
+          b.addEventListener('pointermove', () => { if (sel !== i) { sel = i; mark(false); } });
+          results.appendChild(b);
+        });
+      }
+      function mark(scroll) {
+        [...results.querySelectorAll('.sp-item')].forEach((b, i) => {
+          b.classList.toggle('sel', i === sel);
+          if (i === sel && scroll) b.scrollIntoView({block: 'nearest'});
+        });
+      }
+      function choose(i) {
+        const item = shown[i];
+        if (!item) return;
+        close();
+        switchSession(item.id);
+      }
+      function open() {
+        if (!pop.hidden) { field.focus(); return; }
+        field.value = ''; sel = 0;
+        render();
+        pop.hidden = false;
+        field.focus();
+        refreshSessions().then(() => { if (!pop.hidden) render(); });
+      }
+      function close() {
+        if (pop.hidden) return;
+        pop.hidden = true;
+        trigger.focus({preventScroll: true});
+      }
+      trigger.addEventListener('click', open);
+      document.getElementById('search-pop-close').addEventListener('click', close);
+      field.addEventListener('input', () => { sel = 0; render(); });
+      field.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowDown') { e.preventDefault(); sel = shown.length ? (sel + 1) % shown.length : 0; mark(true); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); sel = shown.length ? (sel - 1 + shown.length) % shown.length : 0; mark(true); }
+        else if (e.key === 'Enter') { e.preventDefault(); choose(sel); }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+      });
+      document.addEventListener('pointerdown', (e) => {
+        if (!pop.hidden && !pop.contains(e.target) && !trigger.contains(e.target)) { pop.hidden = true; }
+      });
+      document.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); open(); }
+      });
+    })();
 
     async function renameSession(id, title) {
       const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/rename`, {
@@ -1473,13 +1867,31 @@
       await refreshSessions();
     }
 
-    document.getElementById('sessions-delete-all').addEventListener('click', async () => {
+    const sessionsFoot = document.querySelector('.s-foot');
+    const footNormal = [...sessionsFoot.childNodes];
+    function footConfirm(count) {
+      sessionsFoot.classList.add('confirming');
+      const yes = el('button', 's-yes', 'Delete all'); yes.type = 'button';
+      const no = el('button', 's-no', 'Cancel'); no.type = 'button';
+      const btns = el('div', 's-confirm-btns'); btns.append(no, yes);
+      sessionsFoot.replaceChildren(
+        el('span', 's-confirm-title', 'Delete all ' + count + ' chat' + (count === 1 ? '' : 's') + '?'),
+        el('span', 's-confirm-sub', 'Every conversation is removed for good.'), btns);
+      no.focus();
+      const restore = () => { sessionsFoot.classList.remove('confirming'); sessionsFoot.replaceChildren(...footNormal); };
+      no.addEventListener('click', restore);
+      sessionsFoot.addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { e.stopPropagation(); sessionsFoot.removeEventListener('keydown', esc); restore(); } });
+      yes.addEventListener('click', async () => {
+        restore();
+        await Promise.all(knownSessions.map(x => fetch(`/api/sessions/${encodeURIComponent(x.id)}`, { method: 'DELETE' }).catch(() => {})));
+        await loadSession(newId());
+      });
+    }
+    document.getElementById('sessions-delete-all').addEventListener('click', () => {
       const saved = knownSessions.filter(x => x.turns_count > 0 || x.id === sessionId);
       if (!saved.length) return;
       if (currentRunId) { setStatus('Stop the current reply first', 'busy'); return; }
-      if (!confirm('Delete all ' + saved.length + ' chats permanently?')) return;
-      await Promise.all(knownSessions.map(x => fetch(`/api/sessions/${encodeURIComponent(x.id)}`, { method: 'DELETE' }).catch(() => {})));
-      await loadSession(newId());
+      footConfirm(saved.length);
     });
 
     async function refreshSessions() {

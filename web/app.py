@@ -98,6 +98,18 @@ async def http_error_handler(request, error):
     return await http_exception_handler(request, error)
 
 
+@app.get('/api/models')
+def list_models():
+    import requests
+    try:
+        resp = requests.get(f"{app.state.ollama_host}/api/tags", timeout=2)
+        resp.raise_for_status()
+        names = sorted({m['name'] for m in resp.json().get('models', []) if m.get('name')})
+    except Exception:
+        names = []
+    return {'models': names, 'default': app.state.default_model}
+
+
 @app.get('/api/guardrails')
 def policy_status():
     policy = app.state.guardrails
@@ -263,6 +275,7 @@ def format_session_response(session: Dict[str, Any], store: SessionStore) -> Dic
         'created_at': session['created_at'],
         'updated_at': session['updated_at'],
         'status': session.get('status', 'active'),
+        'pinned': bool(session.get('pinned', 0)),
     }
 
 
@@ -349,6 +362,18 @@ def switch_session_persona(session_id: str, req: SwitchPersonaRequest):
     return format_session_response(updated, app.state.session_store)
 
 
+class PinSessionRequest(BaseModel):
+    pinned: bool
+
+
+@app.post('/api/sessions/{session_id}/pin')
+def pin_session(session_id: str, req: PinSessionRequest):
+    sess = app.state.session_store.set_session_pinned(session_id, req.pinned)
+    if not sess:
+        raise HTTPException(status_code=404, detail='Session not found.')
+    return format_session_response(sess, app.state.session_store)
+
+
 @app.post('/api/sessions/{session_id}/rename')
 @app.patch('/api/sessions/{session_id}')
 def rename_session(session_id: str, req: RenameSessionRequest):
@@ -416,6 +441,7 @@ async def upload_retrieval_document(file: UploadFile = File(...)):
         from retrieval.rag import _deterministic_fallback_embed
         vectors = [_deterministic_fallback_embed(text) for text in contents]
 
+    app.state.vector_store.delete_source(filename)
     for chunk, vector in zip(chunks, vectors):
         app.state.vector_store.add(
             source_file=filename,
@@ -441,6 +467,14 @@ def list_sources():
         src = c.get('source_file', 'unknown')
         sources[src] = sources.get(src, 0) + 1
     return output_value(app, [{'source_file': k, 'chunks_count': v} for k, v in sources.items()])
+
+
+@app.delete('/api/retrieval/sources')
+def delete_source(source_file: str = Query(..., min_length=1, max_length=512)):
+    removed = app.state.vector_store.delete_source(source_file)
+    if not removed:
+        raise HTTPException(status_code=404, detail='Document not found.')
+    return {'status': 'deleted', 'source_file': source_file, 'chunks_removed': removed}
 
 
 @app.post('/api/retrieval/ingest')
