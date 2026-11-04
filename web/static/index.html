@@ -161,8 +161,71 @@
     .icon-btn[aria-expanded="true"] .k2 { transform: translateX(4px); }
     .icon-btn[aria-expanded="true"] svg { transform: none; }
 
+    /* ---------- Account modal ---------- */
+    #account-btn { display: flex; align-items: center; gap: .7rem; width: 100%; padding: .45rem .5rem; border: 0; border-radius: 12px; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+    #account-btn:hover, #account-btn[aria-expanded="true"] { background: var(--raise); }
+    #account-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+    .acc-avatar { flex: none; display: grid; place-items: center; width: 2.25rem; height: 2.25rem; border-radius: 50%; background: var(--acc); color: oklch(15% 0 0); font: 600 .82rem var(--sans); letter-spacing: .02em; }
+    .acc-who { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+    .acc-who b { font-size: .92rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .acc-who small { font-size: .78rem; color: var(--ink-3); }
+    #account-backdrop { position: fixed; inset: 0; z-index: 70; background: oklch(0% 0 0 / .5); }
+    #account-modal { position: fixed; z-index: 71; top: 50%; left: 50%; translate: -50% -50%; width: min(44rem, calc(100vw - 2rem)); height: min(32rem, calc(100vh - 2rem)); display: grid; grid-template-columns: 11rem 1fr; overflow: hidden; border-radius: 18px; border: 1px solid var(--line-strong); background: var(--panel-solid); box-shadow: 0 30px 80px -20px var(--shadow); animation: pop .25s var(--out); }
+    #account-modal[hidden], #account-backdrop[hidden] { display: none; }
+    .acc-nav { display: flex; flex-direction: column; gap: 2px; padding: 1rem .6rem; border-right: 1px solid var(--line); background: var(--raise); }
+    .acc-nav h2 { margin: 0 0 .6rem .6rem; font-size: .95rem; font-weight: 600; }
+    .acc-nav button { padding: .5rem .6rem; border: 0; border-radius: 8px; background: transparent; color: var(--ink-2); font: 500 .85rem var(--sans); text-align: left; cursor: pointer; }
+    .acc-nav button:hover { color: var(--ink); background: var(--hover-bg); }
+    .acc-nav button[aria-selected="true"] { background: var(--acc-wash); color: var(--acc-text); }
+    .acc-nav button:focus-visible, .acc-primary:focus-visible, .acc-ghost:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .acc-body { position: relative; overflow-y: auto; padding: 1.25rem 1.5rem; }
+    .acc-body section[hidden] { display: none; }
+    .acc-close { position: absolute; top: .7rem; right: .7rem; }
+    .acc-body h3 { margin: 0 0 .75rem; font-size: 1.05rem; font-weight: 600; letter-spacing: -.01em; }
+    .acc-body .group + .group { margin-top: 1rem; }
+    .acc-body .glabel { font-size: .74rem; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: .07em; margin-bottom: .45rem; }
+    .acc-hint { margin: 0 0 1rem; font-size: .82rem; color: var(--ink-3); line-height: 1.5; }
+    .acc-warn { padding: .55rem .7rem; border-radius: 10px; border: 1px solid var(--line); background: var(--raise); color: var(--ink-2); }
+    .acc-field { display: block; margin-bottom: .85rem; font-size: .76rem; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: .07em; }
+    .acc-field input, .acc-field select, .acc-key input { display: block; width: 100%; margin-top: .35rem; padding: .55rem .7rem; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--ink); font: 400 .88rem var(--sans); text-transform: none; letter-spacing: 0; }
+    .acc-dd { position: relative; margin-top: .35rem; text-transform: none; letter-spacing: 0; }
+    .acc-dd .dd-btn { width: 100%; height: auto; justify-content: space-between; padding: .55rem .7rem; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--bg); font: 400 .88rem var(--sans); transition: border-color .2s, background .2s; }
+    .acc-dd .dd-btn:hover, .acc-dd.dd-open .dd-btn { background: var(--raise); }
+    .acc-dd.dd-open .dd-btn { border-color: var(--acc); }
+    .acc-dd .dd-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+    .acc-dd .dd-list { width: 100%; max-width: none; max-height: 14rem; }
+    .acc-dd .dd-search input { margin-top: 0; padding: 0 .6rem; border-radius: 8px; font: 500 .82rem var(--mono); }
+    .dd-list.up { top: auto; bottom: calc(100% + 6px); transform-origin: bottom left; }
+    .acc-field input:focus-visible, .acc-field select:focus-visible, .acc-key input:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+    .acc-actions { display: flex; align-items: center; gap: .5rem; margin-top: 1rem; }
+    .acc-primary, .acc-ghost { padding: .5rem .85rem; border-radius: 9px; font: 600 .82rem var(--sans); cursor: pointer; border: 1px solid var(--line-strong); }
+    .acc-primary { background: var(--acc); border-color: transparent; color: oklch(15% 0 0); }
+    .acc-ghost { background: transparent; color: var(--ink); }
+    .acc-ghost:hover { background: var(--raise); }
+    .acc-danger { color: var(--bad); }
+    .acc-danger:hover { background: var(--bad-wash); }
+    .acc-msg { font-size: .8rem; color: var(--ok); }
+    .acc-msg.err { color: var(--bad); }
+    .acc-key { padding: .7rem 0; border-top: 1px solid var(--line); }
+    .acc-key:first-child { border-top: 0; }
+    .acc-key label { display: flex; justify-content: space-between; font-size: .85rem; font-weight: 600; }
+    .acc-key label small { font-weight: 500; color: var(--ink-3); font-family: var(--mono); }
+    .acc-key .acc-actions { margin-top: .5rem; }
+    .acc-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .8rem 0; border-top: 1px solid var(--line); }
+    .acc-row:first-of-type { border-top: 0; }
+    .acc-row b { display: block; font-size: .88rem; }
+    .acc-row span { font-size: .78rem; color: var(--ink-3); }
+    .acc-keys { display: grid; grid-template-columns: max-content 1fr; gap: .5rem 1rem; margin: 0; font-size: .85rem; }
+    .acc-keys dt { font: 500 .78rem var(--mono); color: var(--acc-text); }
+    .acc-keys dd { margin: 0; color: var(--ink-2); }
+    @media (max-width: 40rem) {
+      #account-modal { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+      .acc-nav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: .5rem; }
+      .acc-nav h2 { display: none; }
+      .acc-nav button { white-space: nowrap; }
+    }
+
     /* ---------- Appearance popover ---------- */
-    .settings { position: relative; }
     .pop {
       position: absolute; top: calc(100% + 8px); right: 0; width: 17.5rem; padding: 1rem; z-index: 40;
       border-radius: 16px; border: 1px solid var(--line-strong); background: var(--panel-solid);
@@ -678,8 +741,7 @@
     .s-confirm-btns .s-no:hover { background: var(--hover-bg); color: var(--ink); }
     .s-confirm-btns .s-yes { border: 1px solid var(--bad); background: var(--bad); color: var(--bg); }
     .s-confirm-btns .s-yes:hover { filter: brightness(1.08); }
-    .s-foot { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .6rem .85rem; border-top: 1px solid var(--line); font-size: .76rem; color: var(--ink-3); }
-    .s-foot .btn:hover { color: var(--bad); }
+    .s-foot { display: flex; flex-direction: column; align-items: stretch; gap: .4rem; padding: .6rem .85rem; border-top: 1px solid var(--line); font-size: .76rem; color: var(--ink-3); }
     .s-foot.confirming { display: block; padding: .75rem .85rem; background: var(--bad-wash); }
     .s-foot.confirming .s-confirm-title { font-size: .82rem; }
 
@@ -759,9 +821,102 @@
     <ul id="sessions-list"></ul>
     <footer class="s-foot">
       <span id="sessions-count"></span>
-      <button id="sessions-delete-all" class="btn" type="button">Delete all</button>
+      <button id="account-btn" type="button" aria-haspopup="dialog" aria-controls="account-modal" title="Account &amp; settings">
+        <span class="acc-avatar" id="acc-avatar" aria-hidden="true">G</span>
+        <span class="acc-who"><b id="acc-name-label">Guest</b><small id="acc-plan-label">Local</small></span>
+      </button>
     </footer>
   </aside>
+  <div id="account-backdrop" hidden></div>
+  <div id="account-modal" role="dialog" aria-modal="true" aria-labelledby="acc-title" hidden>
+    <nav class="acc-nav" aria-label="Account sections">
+      <h2 id="acc-title">Account</h2>
+      <button type="button" data-tab="appearance" aria-selected="true">Appearance</button>
+      <button type="button" data-tab="profile">Profile</button>
+      <button type="button" data-tab="model">Defaults</button>
+      <button type="button" data-tab="keys">API keys</button>
+      <button type="button" data-tab="data">Data</button>
+      <button type="button" data-tab="about">About</button>
+    </nav>
+    <div class="acc-body">
+      <button id="account-close" class="icon-btn acc-close" type="button" aria-label="Close account">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/></svg></button>
+
+      <section data-panel="appearance">
+        <h3>Appearance</h3>
+        <div class="group">
+          <div class="glabel" id="lbl-theme">Theme</div>
+          <div class="seg" role="group" aria-labelledby="lbl-theme">
+            <button type="button" data-theme-pref="system"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="3" width="12" height="8.5" rx="1.5"/><path d="M6 14h4"/></svg>System</button>
+            <button type="button" data-theme-pref="dark"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7Z"/></svg>Dark</button>
+            <button type="button" data-theme-pref="light"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.3M8 13.2v1.3M14.5 8h-1.3M2.8 8H1.5M12.6 3.4l-.9.9M4.3 11.7l-.9.9M12.6 12.6l-.9-.9M4.3 4.3l-.9-.9"/></svg>Light</button>
+          </div>
+        </div>
+        <div class="group">
+          <div class="glabel" id="lbl-accent">Accent</div>
+          <div class="swatches" role="group" aria-labelledby="lbl-accent">
+            <button type="button" class="swatch" data-accent="vermilion" style="--sw: oklch(64% .19 33)"><i></i>Vermilion</button>
+            <button type="button" class="swatch" data-accent="jade" style="--sw: oklch(66% .12 165)"><i></i>Jade</button>
+            <button type="button" class="swatch" data-accent="iris" style="--sw: oklch(62% .16 282)"><i></i>Iris</button>
+            <button type="button" class="swatch" data-accent="gold" style="--sw: oklch(74% .13 78)"><i></i>Gold</button>
+          </div>
+        </div>
+      </section>
+
+      <section data-panel="profile" hidden>
+        <h3>Profile</h3>
+        <p class="acc-hint">Display name is stored in this browser. The rest shapes how Sensai answers and is saved on the server.</p>
+        <label class="acc-field">Display name<input id="acc-name" type="text" maxlength="30" autocomplete="off" placeholder="Guest"></label>
+        <label class="acc-field">Language<input id="acc-language" type="text" maxlength="40" list="acc-langs" autocomplete="off" placeholder="English"></label>
+        <datalist id="acc-langs"><option>English</option><option>French</option><option>Spanish</option><option>German</option><option>Italian</option><option>Portuguese</option></datalist>
+        <div class="acc-field"><span id="lbl-level">Explanation level</span>
+          <div class="acc-dd"><select id="acc-level" aria-labelledby="lbl-level">
+            <option value="simple" data-sub="Short answers in plain language">Simple</option>
+            <option value="detailed" data-sub="Step-by-step with small examples">Detailed</option>
+            <option value="expert" data-sub="Dense and technical, skips basics">Expert</option></select></div></div>
+        <div class="acc-field"><span id="lbl-persona">Preferred persona</span>
+          <div class="acc-dd"><select id="acc-persona" aria-labelledby="lbl-persona"></select></div></div>
+        <div class="acc-actions"><button id="acc-profile-save" class="acc-primary" type="button">Save profile</button><span class="acc-msg" id="acc-profile-msg" role="status"></span></div>
+      </section>
+
+      <section data-panel="model" hidden>
+        <h3>Defaults</h3>
+        <p class="acc-hint">Applied when the page loads. Stored in this browser.</p>
+        <div class="acc-field"><span id="lbl-mode">Default mode</span>
+          <div class="acc-dd"><select id="acc-mode" aria-labelledby="lbl-mode"></select></div></div>
+        <div class="acc-field"><span id="lbl-model">Default model</span>
+          <div class="acc-dd" id="acc-model-host"><input id="acc-model" type="hidden"></div></div>
+        <div class="acc-actions"><button id="acc-model-save" class="acc-primary" type="button">Save defaults</button><button id="acc-model-reset" class="acc-ghost" type="button">Reset</button><span class="acc-msg" id="acc-model-msg" role="status"></span></div>
+      </section>
+
+      <section data-panel="keys" hidden>
+        <h3>API keys</h3>
+        <p class="acc-hint acc-warn">Not used yet: Sensai talks to local Ollama only. Keys stay in this browser's local storage and are never sent to the server.</p>
+        <div id="acc-keys"></div>
+      </section>
+
+      <section data-panel="data" hidden>
+        <h3>Data</h3>
+        <div class="acc-row"><div><b>Export chats</b><span>Download every saved chat as JSON.</span></div><button id="acc-export" class="acc-ghost" type="button">Export</button></div>
+        <div class="acc-row"><div><b>Clear documents</b><span>Remove all uploaded files from the search index.</span></div><button id="acc-clear-docs" class="acc-ghost acc-danger" type="button">Clear</button></div>
+        <div class="acc-row"><div><b>Delete all chats</b><span>Every conversation is removed for good.</span></div><button id="acc-delete-chats" class="acc-ghost acc-danger" type="button">Delete</button></div>
+        <div class="acc-row"><div><b>Forget local settings</b><span>Theme, defaults, API keys and sort order in this browser.</span></div><button id="acc-reset-local" class="acc-ghost acc-danger" type="button">Reset</button></div>
+        <p class="acc-msg" id="acc-data-msg" role="status"></p>
+      </section>
+
+      <section data-panel="about" hidden>
+        <h3>About</h3>
+        <p class="acc-hint">Sensai, local AI assistant.</p>
+        <dl class="acc-keys">
+          <dt>Ctrl K</dt><dd>Search chats</dd>
+          <dt>Right click</dt><dd>Context menu (hold Shift for the browser menu)</dd>
+          <dt>/new</dt><dd>Start a new chat</dd>
+          <dt>Enter</dt><dd>Send, Shift+Enter for a new line</dd>
+          <dt>Esc</dt><dd>Close menus and this panel</dd>
+        </dl>
+      </section>
+    </div>
+  </div>
   <div id="search-pop" role="dialog" aria-label="Search chats" hidden>
     <div class="sp-head">
       <input id="search-pop-input" type="text" placeholder="Search chats…" aria-label="Search chats" autocomplete="off" spellcheck="false">
@@ -786,31 +941,6 @@
       <div class="head-right">
         <div class="meter" id="budget-stats" aria-live="polite" title="Tokens used by the last run and by this session">
           <span class="lbl">last</span><b id="tok-last">0</b><span class="sep"></span><span class="lbl">session</span><b id="tok-session">0</b>
-        </div>
-        <div class="settings">
-          <button id="settings-btn" class="icon-btn" type="button" aria-label="Appearance settings" aria-expanded="false" aria-controls="settings-pop">
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 5.5h8M15 5.5h2M3 14.5h2M9 14.5h8"/><circle class="k1" cx="13" cy="5.5" r="2"/><circle class="k2" cx="7" cy="14.5" r="2"/></svg>
-          </button>
-          <div id="settings-pop" class="pop" role="dialog" aria-label="Appearance" hidden>
-            <h2>Appearance</h2>
-            <div class="group">
-              <div class="glabel" id="lbl-theme">Theme</div>
-              <div class="seg" role="group" aria-labelledby="lbl-theme">
-                <button type="button" data-theme-pref="system"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="3" width="12" height="8.5" rx="1.5"/><path d="M6 14h4"/></svg>System</button>
-                <button type="button" data-theme-pref="dark"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7Z"/></svg>Dark</button>
-                <button type="button" data-theme-pref="light"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.3M8 13.2v1.3M14.5 8h-1.3M2.8 8H1.5M12.6 3.4l-.9.9M4.3 11.7l-.9.9M12.6 12.6l-.9-.9M4.3 4.3l-.9-.9"/></svg>Light</button>
-              </div>
-            </div>
-            <div class="group">
-              <div class="glabel" id="lbl-accent">Accent</div>
-              <div class="swatches" role="group" aria-labelledby="lbl-accent">
-                <button type="button" class="swatch" data-accent="vermilion" style="--sw: oklch(64% .19 33)"><i></i>Vermilion</button>
-                <button type="button" class="swatch" data-accent="jade" style="--sw: oklch(66% .12 165)"><i></i>Jade</button>
-                <button type="button" class="swatch" data-accent="iris" style="--sw: oklch(62% .16 282)"><i></i>Iris</button>
-                <button type="button" class="swatch" data-accent="gold" style="--sw: oklch(74% .13 78)"><i></i>Gold</button>
-              </div>
-            </div>
-          </div>
         </div>
         <a class="nav-link" href="/structured">Structured workspace</a>
         <a class="nav-link" href="/dashboard"><span class="hide-sm">Dashboard</span>
@@ -1017,11 +1147,10 @@
       refreshSources();
     })();
 
-    /* ---------- Appearance settings ---------- */
+    /* ---------- Appearance (lives in the Account modal) ---------- */
     (function () {
       const root = document.documentElement;
-      const btn = document.getElementById('settings-btn');
-      const pop = document.getElementById('settings-pop');
+      const pop = document.getElementById('account-modal');
       const mq = matchMedia('(prefers-color-scheme: light)');
       const save = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
       function apply() {
@@ -1037,14 +1166,6 @@
         root.dataset.accent = b.dataset.accent; save('sensai_accent', root.dataset.accent); apply();
       }));
       mq.addEventListener('change', apply);
-      function setOpen(open) {
-        pop.hidden = !open;
-        btn.setAttribute('aria-expanded', open);
-        if (open) pop.querySelector('[aria-pressed="true"]')?.focus();
-      }
-      btn.addEventListener('click', () => setOpen(pop.hidden));
-      document.addEventListener('pointerdown', (e) => { if (!pop.hidden && !pop.contains(e.target) && !btn.contains(e.target)) setOpen(false); });
-      pop.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); btn.focus(); } });
       apply();
     })();
 
@@ -1113,8 +1234,11 @@
         if (!list.hidden) return;
         render();
         list.hidden = false;
-        list.classList.remove('right');
+        list.classList.remove('right', 'up');
         if (list.getBoundingClientRect().right > innerWidth - 8) list.classList.add('right');
+        const box = host.closest('.acc-body'), lr = list.getBoundingClientRect();
+        const limit = box ? box.getBoundingClientRect().bottom : innerHeight;
+        if (lr.bottom > limit - 4 && btn.getBoundingClientRect().top - lr.height > (box ? box.getBoundingClientRect().top : 0)) list.classList.add('up');
         host.classList.add('dd-open');
         btn.setAttribute('aria-expanded', 'true');
         setActive(Math.max(0, select.selectedIndex));
@@ -1879,33 +2003,6 @@
       await refreshSessions();
     }
 
-    const sessionsFoot = document.querySelector('.s-foot');
-    const footNormal = [...sessionsFoot.childNodes];
-    function footConfirm(count) {
-      sessionsFoot.classList.add('confirming');
-      const yes = el('button', 's-yes', 'Delete all'); yes.type = 'button';
-      const no = el('button', 's-no', 'Cancel'); no.type = 'button';
-      const btns = el('div', 's-confirm-btns'); btns.append(no, yes);
-      sessionsFoot.replaceChildren(
-        el('span', 's-confirm-title', 'Delete all ' + count + ' chat' + (count === 1 ? '' : 's') + '?'),
-        el('span', 's-confirm-sub', 'Every conversation is removed for good.'), btns);
-      no.focus();
-      const restore = () => { sessionsFoot.classList.remove('confirming'); sessionsFoot.replaceChildren(...footNormal); };
-      no.addEventListener('click', restore);
-      sessionsFoot.addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { e.stopPropagation(); sessionsFoot.removeEventListener('keydown', esc); restore(); } });
-      yes.addEventListener('click', async () => {
-        restore();
-        await Promise.all(knownSessions.map(x => fetch(`/api/sessions/${encodeURIComponent(x.id)}`, { method: 'DELETE' }).catch(() => {})));
-        await loadSession(newId());
-      });
-    }
-    document.getElementById('sessions-delete-all').addEventListener('click', () => {
-      const saved = knownSessions.filter(x => x.turns_count > 0 || x.id === sessionId);
-      if (!saved.length) return;
-      if (currentRunId) { setStatus('Stop the current reply first', 'busy'); return; }
-      footConfirm(saved.length);
-    });
-
     async function refreshSessions() {
       try {
         const res = await fetch('/api/sessions');
@@ -2514,6 +2611,7 @@
         plus: SVG('<path d="M5 12h14M12 5v14"/>'),
         search: SVG('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'),
         open: ICON_CHAT,
+        user: SVG('<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>'),
         sun: SVG('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'),
       };
       let lastFocus = null;
@@ -2592,6 +2690,7 @@
         rows.push(
           item(I.plus, 'New chat', () => document.getElementById('session-new').click()),
           item(I.search, 'Search chats', () => document.getElementById('sessions-search-btn').click(), {key: 'Ctrl+K'}),
+          item(I.user, 'Account…', () => window.openAccount()),
           sep(), head('Theme'));
         ['system', 'dark', 'light'].forEach(p => rows.push(item(I.sun, p[0].toUpperCase() + p.slice(1), () => {
           const b = document.querySelector('[data-theme-pref="' + p + '"]'); if (b) b.click();
@@ -2627,6 +2726,244 @@
         else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
         else if (e.key === 'Home') { e.preventDefault(); items[0].focus(); }
         else if (e.key === 'End') { e.preventDefault(); items[items.length - 1].focus(); }
+      });
+    })();
+
+    // ---- Account modal ----
+    (function () {
+      const $ = id => document.getElementById(id);
+      const modal = document.getElementById('account-modal');
+      const backdrop = document.getElementById('account-backdrop');
+      const trigger = document.getElementById('account-btn');
+      const tabs = [...modal.querySelectorAll('[data-tab]')];
+      // Searchable model picker, same behaviour as the toolbar one.
+      function makeModelPicker(input, host) {
+        const btn = el('button', 'dd-btn'); btn.type = 'button';
+        btn.setAttribute('aria-haspopup', 'listbox'); btn.setAttribute('aria-expanded', 'false'); btn.setAttribute('aria-labelledby', 'lbl-model');
+        btn.innerHTML = '<span class="dd-val" style="font-family:var(--mono);font-size:.82rem"></span>' + CHEV;
+        const val = btn.firstChild;
+        const panel = el('div', 'dd-list'); panel.hidden = true;
+        panel.innerHTML = '<div class="dd-search"><input type="text" placeholder="Search models…" spellcheck="false" autocomplete="off" aria-label="Search models"></div><ul role="listbox" style="list-style:none;margin:0;padding:0"></ul>';
+        const search = panel.querySelector('input'), list = panel.querySelector('ul');
+        input.before(btn); host.appendChild(panel);
+        let shown = [], active = 0;
+        const sync = () => { val.textContent = input.value || 'Select model'; };
+        function render() {
+          const q = search.value.trim().toLowerCase();
+          const names = [...new Set([input.value, ...modelNames].filter(Boolean))];
+          shown = names.filter(n => n.toLowerCase().includes(q)).map(n => ({name: n, custom: false}));
+          if (q && !names.some(n => n.toLowerCase() === q)) shown.push({name: search.value.trim(), custom: true});
+          list.replaceChildren();
+          shown.forEach((m, i) => {
+            const li = el('li', 'dd-opt'); li.id = 'acc-model-opt-' + i; li.setAttribute('role', 'option');
+            li.setAttribute('aria-selected', m.name === input.value); li.dataset.index = i;
+            li.append(el('span', 't', m.custom ? 'Use "' + m.name + '"' : m.name));
+            li.insertAdjacentHTML('beforeend', CHECK); list.appendChild(li);
+          });
+          if (!shown.length) list.appendChild(el('li', 'dd-empty', 'No models found. Type a name to use it.'));
+          setActive(Math.max(0, shown.findIndex(m => m.name === input.value)));
+        }
+        function setActive(i) {
+          if (!shown.length) return;
+          active = (i + shown.length) % shown.length;
+          [...list.children].forEach((li, j) => li.classList.toggle('active', j === active));
+          search.setAttribute('aria-activedescendant', 'acc-model-opt-' + active);
+          list.children[active].scrollIntoView({block: 'nearest'});
+        }
+        function open() {
+          if (!panel.hidden) return;
+          search.value = ''; render(); panel.hidden = false; panel.classList.remove('up');
+          const box = host.closest('.acc-body'), lr = panel.getBoundingClientRect();
+          if (box && lr.bottom > box.getBoundingClientRect().bottom - 4 && btn.getBoundingClientRect().top - lr.height > box.getBoundingClientRect().top) panel.classList.add('up');
+          host.classList.add('dd-open'); btn.setAttribute('aria-expanded', 'true'); search.focus({preventScroll: true});
+        }
+        function close(refocus) {
+          if (panel.hidden) return;
+          panel.hidden = true; host.classList.remove('dd-open'); btn.setAttribute('aria-expanded', 'false');
+          if (refocus) btn.focus();
+        }
+        function choose(i) { const m = shown[i]; if (!m) return; input.value = m.name; sync(); close(true); }
+        btn.addEventListener('click', e => { e.preventDefault(); panel.hidden ? open() : close(true); });
+        btn.addEventListener('keydown', e => { if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)) { e.preventDefault(); open(); } });
+        panel.addEventListener('click', e => { e.preventDefault(); const li = e.target.closest('.dd-opt'); if (li) choose(+li.dataset.index); });
+        panel.addEventListener('pointermove', e => { const li = e.target.closest('.dd-opt'); if (li && +li.dataset.index !== active) setActive(+li.dataset.index); });
+        search.addEventListener('input', render);
+        search.addEventListener('keydown', e => {
+          if (e.key === 'ArrowDown') { e.preventDefault(); setActive(active + 1); }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(active - 1); }
+          else if (e.key === 'Enter') { e.preventDefault(); choose(active); }
+          else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(true); }
+          else if (e.key === 'Tab') close(false);
+        });
+        document.addEventListener('pointerdown', e => { if (!host.contains(e.target)) close(false); });
+        sync();
+        return {sync};
+      }
+      const pickModel = makeModelPicker($('acc-model'), $('acc-model-host'));
+      const ddLevel = enhanceSelect($('acc-level')), ddPersona = enhanceSelect($('acc-persona')), ddMode = enhanceSelect($('acc-mode'));
+      const panels = [...modal.querySelectorAll('[data-panel]')];
+      const lget = (k, d = null) => { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } };
+      const lset = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+      const ldel = k => { try { localStorage.removeItem(k); } catch (e) {} };
+      const say = (id, text, bad) => { const n = $(id); n.textContent = text; n.classList.toggle('err', !!bad); if (text) setTimeout(() => { if (n.textContent === text) n.textContent = ''; }, 3500); };
+
+      function showTab(name) {
+        tabs.forEach(t => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+        panels.forEach(p => { p.hidden = p.dataset.panel !== name; });
+        if (name === 'profile') loadProfile();
+        if (name === 'model') loadDefaults();
+        if (name === 'keys') paintKeys();
+      }
+      function open(tab) {
+        modal.hidden = false; backdrop.hidden = false; trigger.setAttribute('aria-expanded', 'true');
+        showTab(tab || 'appearance');
+        (modal.querySelector('[aria-selected="true"]') || modal).focus();
+      }
+      function close() {
+        if (modal.hidden) return;
+        modal.hidden = true; backdrop.hidden = true; trigger.setAttribute('aria-expanded', 'false');
+        trigger.focus({preventScroll: true});
+      }
+      trigger.addEventListener('click', () => open());
+      $('account-close').addEventListener('click', close);
+      backdrop.addEventListener('click', close);
+      tabs.forEach(t => t.addEventListener('click', () => showTab(t.dataset.tab)));
+      modal.addEventListener('keydown', e => {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); return; }
+        if (e.key === 'Tab') {
+          const f = [...modal.querySelectorAll('button, input, select')].filter(x => !x.disabled && x.offsetParent !== null && x.getAttribute('aria-hidden') !== 'true');
+          if (!f.length) return;
+          const first = f[0], last = f[f.length - 1];
+          if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+          else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+        }
+      });
+      window.openAccount = open;
+
+      function paintChip() {
+        const name = (lget('sensai_name', '') || '').trim() || 'Guest';
+        const parts = name.split(/[\s_.\-]+/).filter(Boolean);
+        const ini = (parts.length > 1 ? parts[0][0] + parts[1][0] : name.slice(0, 2)).toUpperCase();
+        $('acc-avatar').textContent = ini;
+        $('acc-name-label').textContent = name;
+      }
+      paintChip();
+
+      // Profile (server)
+      async function loadProfile() {
+        $('acc-name').value = lget('sensai_name', '');
+        const sel = $('acc-persona');
+        sel.replaceChildren(...[...personaSelect.options].map(o => { const n = el('option', null, o.textContent); n.value = o.value; if (o.dataset.sub) n.dataset.sub = o.dataset.sub; return n; }));
+        try {
+          const r = await fetch('/api/profile');
+          if (!r.ok) throw 0;
+          const p = await r.json();
+          $('acc-language').value = p.language || '';
+          const lv = (p.explanation_level || 'detailed').toLowerCase();
+          if (![...$('acc-level').options].some(o => o.value === lv)) $('acc-level').add(new Option(lv, lv));
+          $('acc-level').value = lv;
+          ddLevel.render();
+          if (p.preferred_persona && [...sel.options].some(o => o.value === p.preferred_persona)) sel.value = p.preferred_persona;
+          ddPersona.render();
+        } catch (e) { say('acc-profile-msg', 'Could not load profile', true); }
+      }
+      $('acc-profile-save').addEventListener('click', async () => {
+        const nm = $('acc-name').value.trim(); if (nm) lset('sensai_name', nm); else ldel('sensai_name'); paintChip();
+        try {
+          const r = await fetch('/api/profile', {method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({language: $('acc-language').value.trim() || null, explanation_level: $('acc-level').value, preferred_persona: $('acc-persona').value || null})});
+          if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(typeof d.detail === 'string' ? d.detail : 'HTTP ' + r.status); }
+          say('acc-profile-msg', 'Saved');
+        } catch (e) { say('acc-profile-msg', e.message || 'Save failed', true); }
+      });
+
+      // Defaults (browser)
+      function loadDefaults() {
+        const ms = $('acc-mode');
+        ms.replaceChildren(...[...modeSelect.options].map(o => { const n = el('option', null, o.textContent); n.value = o.value; if (o.dataset.sub) n.dataset.sub = o.dataset.sub; return n; }));
+        ms.value = lget('sensai_default_mode', modeSelect.value);
+        ddMode.render();
+        $('acc-model').value = lget('sensai_default_model', modelInput.value);
+        pickModel.sync();
+      }
+      $('acc-model-save').addEventListener('click', () => {
+        lset('sensai_default_mode', $('acc-mode').value);
+        const m = $('acc-model').value.trim();
+        if (m) lset('sensai_default_model', m); else ldel('sensai_default_model');
+        applyDefaults();
+        say('acc-model-msg', 'Saved');
+      });
+      $('acc-model-reset').addEventListener('click', () => {
+        ldel('sensai_default_mode'); ldel('sensai_default_model'); loadDefaults(); say('acc-model-msg', 'Reset');
+      });
+      function applyDefaults() {
+        const mode = lget('sensai_default_mode'), model = lget('sensai_default_model');
+        if (mode && [...modeSelect.options].some(o => o.value === mode)) { modeSelect.value = mode; modeEdited = true; modeDD.render(); }
+        if (model) { modelInput.value = model; modelEdited = true; syncModelLabel(); }
+      }
+      applyDefaults();
+
+      // API keys (UI only, browser storage)
+      const PROVIDERS = [['openai', 'OpenAI'], ['anthropic', 'Anthropic'], ['google', 'Google'], ['custom', 'Custom endpoint']];
+      const readKeys = () => { try { return JSON.parse(lget('sensai_keys', '{}')) || {}; } catch (e) { return {}; } };
+      const writeKeys = k => lset('sensai_keys', JSON.stringify(k));
+      const mask = v => v.length <= 8 ? '••••' : v.slice(0, 3) + '…' + v.slice(-4);
+      function paintKeys() {
+        const box = $('acc-keys'), keys = readKeys();
+        box.replaceChildren();
+        PROVIDERS.forEach(([id, name]) => {
+          const row = el('div', 'acc-key');
+          const lab = el('label'); lab.htmlFor = 'key-' + id;
+          lab.append(el('span', null, name), el('small', null, keys[id] ? mask(keys[id]) : 'not set'));
+          const inp = el('input'); inp.id = 'key-' + id; inp.type = 'password'; inp.autocomplete = 'off'; inp.spellcheck = false;
+          inp.placeholder = keys[id] ? 'Replace key…' : 'Paste key…';
+          const acts = el('div', 'acc-actions');
+          const sv = el('button', 'acc-primary', 'Save'); sv.type = 'button';
+          const sh = el('button', 'acc-ghost', 'Show'); sh.type = 'button';
+          const rm = el('button', 'acc-ghost acc-danger', 'Remove'); rm.type = 'button'; rm.disabled = !keys[id];
+          sh.addEventListener('click', () => { const show = inp.type === 'password'; inp.type = show ? 'text' : 'password'; sh.textContent = show ? 'Hide' : 'Show'; });
+          sv.addEventListener('click', () => { const v = inp.value.trim(); if (!v) return; const k = readKeys(); k[id] = v; writeKeys(k); paintKeys(); });
+          rm.addEventListener('click', () => { const k = readKeys(); delete k[id]; writeKeys(k); paintKeys(); });
+          acts.append(sv, sh, rm);
+          row.append(lab, inp, acts); box.appendChild(row);
+        });
+      }
+
+      // Data
+      $('acc-export').addEventListener('click', async () => {
+        try {
+          const list = await (await fetch('/api/sessions')).json();
+          const full = await Promise.all(list.filter(x => x.turns_count > 0).map(x => fetch('/api/sessions/' + encodeURIComponent(x.id)).then(r => r.json())));
+          const a = el('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(full, null, 2)], {type: 'application/json'}));
+          a.download = 'sensai-chats-' + new Date().toISOString().slice(0, 10) + '.json'; a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+          say('acc-data-msg', 'Exported ' + full.length + ' chat' + (full.length === 1 ? '' : 's'));
+        } catch (e) { say('acc-data-msg', 'Export failed', true); }
+      });
+      const confirmBtn = (btn, label, fn) => {
+        let t = null; const orig = btn.textContent;
+        btn.addEventListener('click', () => {
+          if (t) { clearTimeout(t); t = null; btn.textContent = orig; fn(); return; }
+          btn.textContent = label;
+          t = setTimeout(() => { t = null; btn.textContent = orig; }, 4000);
+        });
+      };
+      confirmBtn($('acc-clear-docs'), 'Sure?', async () => {
+        try {
+          const rows = await (await fetch('/api/retrieval/sources')).json();
+          await Promise.all(rows.map(r => fetch('/api/retrieval/sources?source_file=' + encodeURIComponent(r.source_file), {method: 'DELETE'})));
+          say('acc-data-msg', rows.length ? 'Cleared ' + rows.length + ' document' + (rows.length === 1 ? '' : 's') : 'No documents');
+        } catch (e) { say('acc-data-msg', 'Could not clear documents', true); }
+      });
+      confirmBtn($('acc-delete-chats'), 'Sure?', async () => {
+        if (currentRunId) { say('acc-data-msg', 'Stop the current reply first', true); return; }
+        await Promise.all(knownSessions.map(x => fetch('/api/sessions/' + encodeURIComponent(x.id), {method: 'DELETE'}).catch(() => {})));
+        await loadSession(newId());
+        say('acc-data-msg', 'All chats deleted');
+      });
+      confirmBtn($('acc-reset-local'), 'Sure?', () => {
+        ['sensai_theme', 'sensai_accent', 'sensai_sort', 'sensai_default_mode', 'sensai_default_model', 'sensai_keys', 'sensai_name'].forEach(ldel);
+        location.reload();
       });
     })();
 
