@@ -1,0 +1,72 @@
+{
+  "servers": [
+    {
+      "name": "project",
+      "command": "$PYTHON",
+      "args": [
+        "-m",
+        "mcp_tools.project_server",
+        "--workspace",
+        "local-output",
+        "--policy",
+        "configs/files.demo.json"
+      ],
+      "cwd": "..",
+      "allow_tools": [
+        "read_project_file",
+        "create_project_file",
+        "write_project_file"
+      ],
+      "auto_approve": [],
+      "timeout": 20
+    },
+    {
+      "name": "time",
+      "command": "$PYTHON",
+      "args": [
+        "-m",
+        "mcp_server_time"
+      ],
+      "cwd": "..",
+      "allow_tools": [
+        "get_current_time",
+        "convert_time"
+      ],
+      "auto_approve": [
+        "get_current_time",
+        "convert_time"
+      ],
+      "timeout": 20
+    },
+    {
+      "name": "python",
+      "command": "$PYTHON",
+      "args": [
+        "-m",
+        "mcp_tools.python_server"
+      ],
+      "cwd": "..",
+      "allow_tools": [
+        "execute_python"
+      ],
+      "auto_approve": [],
+      "timeout": 20
+    },
+    {
+      "name": "search",
+      "command": "$PYTHON",
+      "args": [
+        "-m",
+        "mcp_tools.search_server",
+        "--url",
+        "http://127.0.0.1:8088"
+      ],
+      "cwd": "..",
+      "allow_tools": [
+        "search_web"
+      ],
+      "auto_approve": [],
+      "timeout": 20
+    }
+  ]
+}

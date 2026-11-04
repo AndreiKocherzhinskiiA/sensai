@@ -1,0 +1,27 @@
+{
+  "extensions": [
+    ".txt",
+    ".md",
+    ".py",
+    ".json"
+  ],
+  "max_bytes": 16384,
+  "allow_create": true,
+  "permissions": {
+    "read": [
+      "project_notes.md",
+      "src/",
+      "reports/"
+    ],
+    "create": [
+      "reports/"
+    ],
+    "write": [
+      "reports/"
+    ],
+    "deny": [
+      "src/private/",
+      "reports/protected.md"
+    ]
+  }
+}

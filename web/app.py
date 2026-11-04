@@ -42,6 +42,7 @@ from evaluation.judge import EvaluationError, evaluate_response
 from export.service import ExportError, SnapshotStore, sanitize_snapshot_data
 from file_access.reader import FileAccessError, FileSnapshot, SUPPORTED, WorkspaceReader
 from file_access.writer import CreatePlan, WorkspaceWriter
+from file_access.policy import FilePolicy
 from forms.service import FormValidationError, validate_form_answers, validate_form_schema
 from optimization.optimizer import OptimizationError, PromptOptimizer
 from persona.registry import PersonaError, load_personas, persona_prompt
@@ -114,60 +115,14 @@ app.state.artifacts = ArtifactStore(str(settings.artifacts_db))
 app.state.snapshots = SnapshotStore(str(settings.snapshots_db))
 app.state.vector_store = VectorStore(':memory:')
 
-class SafeWorkspaceWriterFallback:
-    def __init__(self, root: Path):
-        self.root = Path(root).expanduser().resolve(strict=True)
-        self._pending: Optional[CreatePlan] = None
-
-    def close(self):
-        self._pending = None
-
-    def _inside(self, p: Path) -> bool:
-        return p == self.root or p.is_relative_to(self.root)
-
-    def read_text(self, relative_path: str) -> FileSnapshot:
-        p = (self.root / relative_path).resolve()
-        if not self._inside(p):
-            raise FileAccessError('Path outside workspace.')
-        if not p.is_file():
-            raise FileAccessError(f'File not found: {relative_path}')
-        content = p.read_text(encoding='utf-8')
-        return FileSnapshot(relative_path, content, len(content.encode('utf-8')))
-
-    def prepare_create(self, relative_path: str, content: str) -> CreatePlan:
-        p = (self.root / relative_path).resolve()
-        if not self._inside(p):
-            raise FileAccessError('Path outside workspace.')
-        if p.exists():
-            raise FileAccessError('Target already exists; overwriting is not allowed.')
-        plan = CreatePlan(uuid.uuid4().hex, relative_path, content, len(content.encode('utf-8')))
-        self._pending = plan
-        return plan
-
-    def decide(self, plan_id: str, approved: bool) -> bool:
-        if self._pending is None or self._pending.id != plan_id:
-            raise FileAccessError('Save request is unknown, expired or already decided.')
-        plan = self._pending
-        self._pending = None
-        if not approved:
-            return False
-        p = (self.root / plan.path).resolve()
-        if not self._inside(p):
-            raise FileAccessError('Path outside workspace.')
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(plan.content, encoding='utf-8')
-        return True
-
-
 def get_workspace_writer(root_path: Optional[Path]) -> Optional[Any]:
     if not root_path:
         return None
-    try:
-        if SUPPORTED:
-            return WorkspaceWriter(root_path)
-        return SafeWorkspaceWriterFallback(root_path)
-    except Exception:
-        return SafeWorkspaceWriterFallback(root_path)
+    policy_path = os.getenv('SENSAI_FILE_POLICY')
+    policy = FilePolicy.from_file(policy_path) if policy_path else FilePolicy(allow_create=True)
+    access = WorkspaceWriter if policy.can_create or policy.can_write else WorkspaceReader
+    # Never replace descriptor-based permissions with resolve-then-open on failure.
+    return access(root_path, policy)
 
 
 app.state.workspace_writer = get_workspace_writer(settings.workspace_dir)
@@ -801,6 +756,10 @@ def start_run(request: RunRequest):
             if identifier and input_value(app, identifier) != identifier:
                 raise HTTPException(status_code=422, detail='Identifiers and paths must not contain personal data.')
     file_write = request.file_write
+    if file_write and not isinstance(app.state.workspace_writer, WorkspaceWriter):
+        raise HTTPException(403, 'Workspace creation is not enabled.')
+    if request.file_read and app.state.workspace_writer is None:
+        raise HTTPException(403, 'Workspace reading is not enabled.')
     if file_write:
         file_write = output_value(app, input_value(app, file_write))
         if file_write.get('path') != request.file_write.get('path'):
@@ -1016,8 +975,8 @@ async def generate_events(run: Dict[str, Any]):
                 if app.state.workspace_writer:
                     try:
                         app.state.workspace_writer.decide(plan.id, True)
-                    except Exception:
-                        pass
+                    except FileAccessError as error:
+                        raise FileAccessError('File creation failed: ' + str(error)) from error
                 yield to_sse(stream.emit('tool_result', tool='write', status='approved', path=plan.path))
             elif run.get('approval_decision') is False:
                 if app.state.workspace_writer:
