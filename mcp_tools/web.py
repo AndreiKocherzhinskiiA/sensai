@@ -91,11 +91,11 @@ async def turn_events(run):
             elif run.get('automatic_tools'):
                 result = await run_optional_turn(run['mcp_servers'], run['messages'], run['host'],
                     run['model'], run['timeout'], max_calls=4,
-                    approve=approve, notify=notify, policy=run.get('guardrails'))
+                    approve=approve, notify=notify, policy=run.get('guardrails'), user_request=run['message'])
             else:
                 result = await run_turn(run['mcp_servers'], run['messages'], run['host'],
                                         run['model'], run['timeout'], max_calls=4,
-                                        approve=approve, notify=notify, policy=run.get('guardrails'))
+                                        approve=approve, notify=notify, policy=run.get('guardrails'), user_request=run['message'])
             events.put_nowait(('answer', result))
         except asyncio.CancelledError:
             events.put_nowait(('cancelled', None))

@@ -725,6 +725,17 @@ def start_run(request: RunRequest):
             raise HTTPException(422, 'MCP cannot be combined with structured output or file_write.')
     policy = app.state.guardrails
     message = input_value(app, request.message.strip())
+    if message != request.message.strip():
+        # Privacy filtering must never silently rewrite an explicit action.
+        from mcp_tools.explicit import parse_explicit_action
+        from mcp_tools.config import McpError
+        try:
+            explicit = parse_explicit_action(request.message.strip())
+        except McpError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        if explicit is not None:
+            raise HTTPException(status_code=422, detail='Explicit arguments conflict with content policy; nothing was executed.')
+
     if not message:
         raise HTTPException(status_code=422, detail='Message cannot be empty.')
     if requested_mode == 'search':

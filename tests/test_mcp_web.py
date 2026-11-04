@@ -102,7 +102,40 @@ class McpWebTests(unittest.IsolatedAsyncioTestCase):
                     self.assertFalse(results[0]['isError'])
                     self.assertEqual((root/path).read_text(),'updated')
 
+    async def test_explicit_web_arguments_are_not_silently_redacted(self):
+        message=('Perform exactly one tool call: project__create_project_file Arguments: '
+                 '{"relative_path":"reports/contact.md","content":"a@example.com"}')
+        status,body=await self.request('POST','/api/runs',{'mode':'ollama','message':message})
+        self.assertEqual(status,422)
+        self.assertIn('conflict with content policy',body)
+        self.assertFalse(self.web.app.state.runs)
 
+    async def test_exact_create_from_chat_preserves_arguments_and_reports_real_deny(self):
+        from dataclasses import replace
+        root=Path(self.directory.name)/'explicit-workspace'
+        (root/'reports').mkdir(parents=True)
+        self.web.app.state.mcp_servers=[replace(load_config(ROOT/'configs/mcp.integrated.json')[0],args=(
+            '-m','mcp_tools.project_server','--workspace',str(root),
+            '--policy',str(ROOT/'configs/files.scoped.json')))]
+        message=('Perform exactly one tool call: project__create_project_file Arguments: '
+                 '{"relative_path":"reports/protected.md","content":"This creation must be denied"} '
+                 'Do not read or update any file.')
+        with patch.object(settings,'check_ollama_alive',return_value=True), \
+             patch('mcp_tools.runner.plan_workflow',AsyncMock()) as planner, \
+             patch('mcp_tools.runner.request_message',AsyncMock()) as model:
+            run=await self.start(mode='ollama',message=message)
+            task,queue=await self.stream(run)
+            approval=await self.next_event(queue,'approval_request')
+            self.assertEqual(approval['tool'],'project__create_project_file')
+            self.assertEqual(approval['arguments'],{'relative_path':'reports/protected.md','content':'This creation must be denied'})
+            await self.decision(run,approval)
+            _,body=await asyncio.wait_for(task,10)
+            self.assertIn('Permission denied for create',body)
+            calls=[e for e in self.events.get_events(run['run_id']) if e['type']=='tool_call']
+            self.assertEqual(len(calls),1)
+            self.assertFalse((root/'reports/protected.md').exists())
+            self.assertFalse(self.sessions.get_messages(run['session_id']))
+            planner.assert_not_called();model.assert_not_called()
 
     async def test_frontend_receives_configured_model_and_mode(self):
         with patch.object(self.web.app.state, 'default_model', 'qwen3:4b'), patch.object(self.web.app.state, 'mode', 'mcp'):

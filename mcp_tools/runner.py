@@ -11,6 +11,7 @@ import httpx
 from structured.output import strict_json, JsonOutput, StructuredOutputError
 from .config import McpError
 from .gateway import connect
+from .explicit import parse_explicit_action
 
 MCP_RULE = (
     'For this turn you may use only the supplied MCP tools. Use tools when the request '
@@ -299,12 +300,41 @@ async def tool_loop(gateway, messages, host, model, timeout, max_calls=4,
     raise McpError('MCP turn ended without a final answer.')
 
 
+def latest_user_request(messages):
+    return next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
+
+
+async def run_explicit_action(gateway, action, messages, host, model, timeout,
+                              approve=None, notify=None, policy=None):
+    """One exact user action through the shared schema/consent/execution boundary."""
+    args = gateway.prepare(action['name'], action['arguments'])
+    if args != action['arguments']:
+        raise McpError('Explicit arguments conflict with content policy; nothing was executed.')
+    first = True
+    async def propose(host, model, conversation, definitions, timeout):
+        nonlocal first
+        if first:
+            first = False
+            return {'role':'assistant', 'content':'', 'tool_calls':[{'function':{
+                'name':action['name'], 'arguments':deepcopy(args)}}]}
+        observed = strict_json(next(m['content'] for m in reversed(conversation) if m.get('role') == 'tool'))
+        if observed.get('isError') is not False:
+            raise McpError('Explicit tool call failed; no alternative action was attempted. See the tool result.')
+        return {'role':'assistant', 'content':'Actual tool result (' + action['name'] + '):\n' +
+                json.dumps(observed, ensure_ascii=False, indent=2)}
+    return await tool_loop(gateway, messages, host, model, timeout, 1,
+                           approve, notify, policy, request=propose)
+
+
 async def run_turn(servers, messages, host, model, timeout, max_calls=4,
-                   approve=None, notify=None, policy=None):
+                   approve=None, notify=None, policy=None, user_request=None):
+    action = parse_explicit_action(user_request if user_request is not None else latest_user_request(messages))
     # Validate input before even starting configured server processes.
     if policy:
         messages = policy.messages(messages)
     async with connect(servers, policy) as gateway:
+        if action is not None:
+            return await run_explicit_action(gateway, action, messages, host, model, timeout, approve, notify, policy)
         return await tool_loop(gateway, messages, host, model, timeout, max_calls,
                                approve, notify, policy, action_request=request_action)
 
@@ -354,11 +384,14 @@ async def plan_workflow(host, model, messages, definitions, timeout, max_steps=4
 
 
 async def run_optional_turn(servers, messages, host, model, timeout, *,
-                            approve=None, notify=None, policy=None, max_calls=4):
+                            approve=None, notify=None, policy=None, max_calls=4, user_request=None):
     """Run a bounded ordered workflow, or continue ordinary chat when none is needed."""
+    action = parse_explicit_action(user_request if user_request is not None else latest_user_request(messages))
     if policy:
         messages = policy.messages(messages)
     async with connect(servers, policy) as gateway:
+        if action is not None:
+            return await run_explicit_action(gateway, action, messages, host, model, timeout, approve, notify, policy)
         definitions = [tool.definition() for tool in gateway.tools.values()]
         steps = await plan_workflow(host, model, messages, definitions, timeout, max_calls)
         if not steps:
