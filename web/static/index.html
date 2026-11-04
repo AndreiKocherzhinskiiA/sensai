@@ -161,6 +161,18 @@
     .icon-btn[aria-expanded="true"] .k2 { transform: translateX(4px); }
     .icon-btn[aria-expanded="true"] svg { transform: none; }
 
+    /* ---------- Drag and drop overlay ---------- */
+    #drop-overlay { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 1.25rem; pointer-events: none; background: color-mix(in oklch, var(--bg) 70%, transparent); backdrop-filter: blur(6px); animation: do-in .18s var(--out); }
+    @keyframes do-in { from { opacity: 0; } }
+    #drop-overlay[hidden] { display: none; }
+    #drop-overlay::before { content: ""; position: absolute; inset: 1rem; border-radius: 20px; border: 2px dashed var(--acc); background: var(--acc-wash); }
+    .do-card { position: relative; display: grid; justify-items: center; gap: .4rem; padding: 1.5rem 2rem; text-align: center; border-radius: 16px; border: 1px solid var(--line-strong); background: var(--panel-solid); box-shadow: 0 24px 60px -20px var(--shadow); animation: pop .25s var(--out); }
+    .do-card svg { width: 38px; height: 38px; color: var(--acc-text); margin-bottom: .25rem; }
+    .do-card b { font-size: 1rem; font-weight: 600; }
+    .do-card span { font-size: .82rem; color: var(--ink-3); }
+    #drop-overlay.bad::before { border-color: var(--bad); background: var(--bad-wash); }
+    #drop-overlay.bad .do-card svg { color: var(--bad); }
+
     /* ---------- Account modal ---------- */
     #account-btn { display: flex; align-items: center; gap: .7rem; width: 100%; padding: .45rem .5rem; border: 0; border-radius: 12px; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
     #account-btn:hover, #account-btn[aria-expanded="true"] { background: var(--raise); }
@@ -970,6 +982,13 @@
       </section>
     </div>
   </div>
+  <div id="drop-overlay" aria-hidden="true" hidden>
+    <div class="do-card">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
+      <b>Drop files to add them to the knowledge base</b>
+      <span>.txt or .md, up to 5 MB each</span>
+    </div>
+  </div>
   <div id="search-pop" role="dialog" aria-label="Search chats" hidden>
     <div class="sp-head">
       <input id="search-pop-input" type="text" placeholder="Search chats…" aria-label="Search chats" autocomplete="off" spellcheck="false">
@@ -1040,7 +1059,7 @@
       <div id="document-upload-form" class="document-upload">
         <input id="document-file" name="file" type="file" accept=".txt,.md,text/plain,text/markdown" multiple hidden>
         <button id="document-upload-btn" type="button">Choose files…</button>
-        <span id="document-upload-status" role="status" aria-live="polite">Files upload as soon as you pick them. Drop files here too.</span>
+        <span id="document-upload-status" role="status" aria-live="polite">Files upload as soon as you pick them. You can also drop files anywhere on the page.</span>
       </div>
       <ul id="document-sources" class="document-sources" aria-label="Indexed documents"></ul>
     </div>
@@ -1069,7 +1088,7 @@
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
             </button>
             <ul id="attach-menu" class="attach-menu" role="menu" hidden>
-              <li role="none"><button type="button" role="menuitem" data-act="upload">Upload documents<small>.txt or .md, up to 5 MB, added to the knowledge base</small></button></li>
+              <li role="none"><button type="button" role="menuitem" data-act="upload">Upload documents<small>.txt or .md, up to 5 MB. You can also drop files anywhere</small></button></li>
               <li role="none"><button type="button" role="menuitem" data-act="manage">Manage documents<small>See or delete uploaded files</small></button></li>
             </ul>
           </div>
@@ -1105,6 +1124,7 @@
     });
     /* ---------- Knowledge base document upload ---------- */
     let pickDocuments = () => {};
+    let uploadDocuments = async () => ({done: [], failed: []});
     (function () {
       const toggle = document.getElementById('documents-btn');
       const panel = document.getElementById('documents-panel');
@@ -1114,6 +1134,7 @@
       const status = document.getElementById('document-upload-status');
       const sources = document.getElementById('document-sources');
       pickDocuments = () => picker.click();
+      uploadDocuments = (files) => uploadFiles(files);
       submit.addEventListener('click', () => picker.click());
 
       function setUploadStatus(message, kind = '') {
@@ -1169,7 +1190,7 @@
 
       async function uploadFiles(files) {
         files = [...files];
-        if (!files.length) return;
+        if (!files.length) return {done: [], failed: []};
         if (panel.hidden) { panel.hidden = false; toggle.setAttribute('aria-expanded', 'true'); }
         submit.disabled = true;
         const done = [];
@@ -1192,11 +1213,9 @@
         if (failed.length) setUploadStatus(failed.join(' · '), 'error');
         else setUploadStatus(`Indexed ${done.join(', ')}.`, 'success');
         await refreshSources();
+        return {done, failed};
       }
       picker.addEventListener('change', () => uploadFiles(picker.files || []));
-      ['dragenter', 'dragover'].forEach(n => dropZone.addEventListener(n, (e) => { e.preventDefault(); dropZone.classList.add('drag'); }));
-      ['dragleave', 'drop'].forEach(n => dropZone.addEventListener(n, (e) => { e.preventDefault(); dropZone.classList.remove('drag'); }));
-      dropZone.addEventListener('drop', (e) => uploadFiles(e.dataTransfer ? e.dataTransfer.files : []));
       refreshSources();
     })();
 
@@ -3261,6 +3280,50 @@
       confirmBtn($('acc-reset-local'), 'Sure?', () => {
         ['sensai_theme', 'sensai_accent', 'sensai_sort', 'sensai_default_mode', 'sensai_default_model', 'sensai_keys', 'sensai_name'].forEach(ldel);
         location.reload();
+      });
+    })();
+
+    // ---- Drag and drop files anywhere on the page ----
+    (function () {
+      const overlay = document.getElementById('drop-overlay');
+      const OK = /\.(txt|md)$/i;
+      let depth = 0;
+      const hasFiles = e => e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files');
+      const blocked = () => !document.getElementById('account-modal').hidden;
+      const hide = () => { depth = 0; overlay.hidden = true; overlay.classList.remove('bad'); };
+
+      document.addEventListener('dragenter', (e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        depth++;
+        if (!blocked()) overlay.hidden = false;
+      });
+      document.addEventListener('dragover', (e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = blocked() ? 'none' : 'copy';
+      });
+      document.addEventListener('dragleave', (e) => {
+        if (!hasFiles(e)) return;
+        depth = Math.max(0, depth - 1);
+        if (depth === 0 || (e.relatedTarget === null && e.clientX <= 0 && e.clientY <= 0)) hide();
+      });
+      document.addEventListener('dragend', hide);
+      window.addEventListener('blur', hide);
+      document.addEventListener('drop', async (e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();   // never let the browser navigate to a dropped file
+        hide();
+        if (blocked()) return;
+        const all = [...e.dataTransfer.files];
+        const good = all.filter(f => OK.test(f.name));
+        const skipped = all.length - good.length;
+        if (!good.length) { setStatus('Only .txt and .md files can be added', 'fail'); return; }
+        setStatus('Uploading ' + good.length + ' file' + (good.length === 1 ? '' : 's') + '…', 'busy');
+        const {done, failed} = await uploadDocuments(good);
+        const extra = skipped ? ' · skipped ' + skipped + ' unsupported' : '';
+        if (failed.length) setStatus(failed.length + ' of ' + good.length + ' failed' + extra, 'fail');
+        else setStatus('Added ' + done.length + ' file' + (done.length === 1 ? '' : 's') + ' to the knowledge base' + extra);
       });
     })();
 
