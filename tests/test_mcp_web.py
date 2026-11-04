@@ -55,9 +55,125 @@ class McpWebTests(unittest.IsolatedAsyncioTestCase):
         original = runner.tool_loop
         self.model = AsyncMock()
         async def loop(*args, **kwargs):
-            return await original(*args, **kwargs, request=self.model)
+            kwargs['action_request'] = self.model
+            kwargs.setdefault('request', self.model)
+            return await original(*args, **kwargs)
         self.stack.enter_context(patch.object(runner, 'tool_loop', loop))
         self.model.side_effect = [self.call(), {'role': 'assistant', 'content': 'Python and SQLite'}]
+
+    async def test_normal_chat_file_update_requires_approval_and_respects_policy(self):
+        from dataclasses import replace
+        import hashlib
+        root=Path(self.directory.name)/'workspace'
+        (root/'reports').mkdir(parents=True)
+        (root/'src').mkdir()
+        (root/'reports/note.md').write_text('original')
+        (root/'src/main.py').write_text('print(1)')
+        config=replace(load_config(ROOT/'configs/mcp.integrated.json')[0],args=(
+            '-m','mcp_tools.project_server','--workspace',str(root),
+            '--policy',str(ROOT/'configs/files.scoped.json')))
+        self.web.app.state.mcp_servers=[config]
+        for approved,path,original in [(False,'reports/note.md','original'),
+                                       (True,'reports/note.md','original'),
+                                       (True,'src/main.py','print(1)')]:
+            arguments={'relative_path':path,'content':'updated',
+                       'expected_sha256':hashlib.sha256(original.encode()).hexdigest()}
+            with patch.object(settings,'check_ollama_alive',return_value=True), \
+                 patch('mcp_tools.runner.plan_workflow',AsyncMock(return_value=[
+                     {'tool':'project__write_project_file','goal':'Update the report'}])), \
+                 patch('mcp_tools.runner.request_action',AsyncMock(return_value=self.call('project__write_project_file',arguments))), \
+                 patch('mcp_tools.runner.request_message',AsyncMock(return_value={'role':'assistant','content':'Updated report.'})):
+                run=await self.start(mode='ollama',message='Update the report')
+                task,queue=await self.stream(run)
+                approval=await self.next_event(queue,'approval_request')
+                self.assertEqual(approval['arguments'],arguments)
+                self.assertEqual((root/path).read_text(),original)
+                await self.decision(run,approval,approved)
+                await asyncio.wait_for(task,10)
+                events=self.events.get_events(run['run_id'])
+                results=[e['payload']['result'] for e in events if e['type']=='tool_result']
+                if not approved:
+                    self.assertEqual(results,[])
+                    self.assertEqual((root/path).read_text(),original)
+                elif path.startswith('src/'):
+                    self.assertTrue(results[0]['isError'])
+                    self.assertEqual((root/path).read_text(),original)
+                else:
+                    self.assertFalse(results[0]['isError'])
+                    self.assertEqual((root/path).read_text(),'updated')
+
+
+
+    async def test_frontend_receives_configured_model_and_mode(self):
+        with patch.object(self.web.app.state, 'default_model', 'qwen3:4b'), patch.object(self.web.app.state, 'mode', 'mcp'):
+            status, body = await self.request('GET', '/api/mcp')
+            self.assertEqual(status, 200)
+            data = json.loads(body)
+            self.assertEqual(data['default_model'], 'qwen3:4b')
+            self.assertEqual(data['default_mode'], 'mcp')
+
+    async def test_normal_chat_selects_file_tool_without_special_mode(self):
+        from mcp_tools import runner
+        with patch.object(settings, 'check_ollama_alive', return_value=True), \
+             patch.object(runner, 'plan_workflow', AsyncMock(return_value=[{'tool':'project__read_project_file','goal':'Read notes'}])) as planner, \
+             patch.object(runner, 'request_action', AsyncMock(return_value=self.call())), \
+             patch.object(runner, 'request_message', AsyncMock(return_value={'role':'assistant','content':'Python and SQLite'})), \
+             patch.object(self.web, 'execute_turn_stream') as ordinary:
+            run = await self.start(mode='ollama', message='What language is used in project_notes.md?')
+            self.assertEqual(self.web.app.state.runs[run['run_id']]['mode'], 'ollama')
+            task, queue = await self.stream(run)
+            approval = await self.next_event(queue, 'approval_request')
+            await self.decision(run, approval)
+            await asyncio.wait_for(task, 10)
+            planner.assert_awaited_once()
+            ordinary.assert_not_called()
+            events = self.events.get_events(run['run_id'])
+            self.assertTrue(any(e['type']=='tool_result' for e in events))
+            self.assertEqual(self.sessions.get_messages(run['session_id'])[-1]['content'], 'Python and SQLite')
+
+    async def test_no_action_continues_existing_streaming_chat(self):
+        with patch.object(settings, 'check_ollama_alive', return_value=True), \
+             patch('mcp_tools.runner.plan_workflow', AsyncMock(return_value=[])) as planner, \
+             patch.object(self.web, 'execute_turn_stream', return_value=iter(['A function ', 'is reusable code.'])) as ordinary:
+            run = await self.start(mode='ollama', message='Explain a Python function.')
+            task, queue = await self.stream(run)
+            await asyncio.wait_for(task, 10)
+            planner.assert_awaited_once()
+            ordinary.assert_called_once()
+            self.assertFalse(any(e['type'] in ('approval_request','tool_call') for e in self.events.get_events(run['run_id'])))
+            self.assertEqual(self.sessions.get_messages(run['session_id'])[-1]['content'], 'A function is reusable code.')
+
+    async def test_disabled_tools_skip_discovery_and_planning(self):
+        with patch.object(settings, 'check_ollama_alive', return_value=True), \
+             patch('mcp_tools.runner.connect') as connect, \
+             patch('mcp_tools.runner.plan_workflow', AsyncMock()) as planner, \
+             patch.object(self.web, 'execute_turn_stream', return_value=iter(['Tools are disabled.'])) as ordinary:
+            run = await self.start(mode='ollama', tools_enabled=False, message='Search for current documentation.')
+            task, queue = await self.stream(run)
+            await asyncio.wait_for(task, 10)
+            connect.assert_not_called()
+            planner.assert_not_called()
+            self.assertIn('Tools are disabled', str(ordinary.call_args))
+            self.assertFalse(any(e['type'] in ('approval_request','tool_call') for e in self.events.get_events(run['run_id'])))
+
+    async def test_normal_chat_rejection_does_not_fall_back_to_fake_answer(self):
+        with patch.object(settings, 'check_ollama_alive', return_value=True), \
+             patch('mcp_tools.runner.plan_workflow', AsyncMock(return_value=[{'tool':'project__read_project_file','goal':'Read notes'}])), \
+             patch('mcp_tools.runner.request_action', AsyncMock(return_value=self.call())), \
+             patch.object(self.web, 'execute_turn_stream') as ordinary:
+            run = await self.start(mode='ollama', message='Read project_notes.md')
+            task, queue = await self.stream(run)
+            approval = await self.next_event(queue, 'approval_request')
+            await self.decision(run, approval, False)
+            _, body = await asyncio.wait_for(task, 10)
+            self.assertIn('rejected', body)
+            self.assertFalse(self.sessions.get_messages(run['session_id']))
+            ordinary.assert_not_called()
+
+    async def test_disabled_tools_cannot_be_bypassed_by_legacy_modes(self):
+        for mode in ('mcp', 'search', 'react'):
+            status, _ = await self.request('POST', '/api/runs', {'message':'Use tools', 'mode':mode, 'tools_enabled':False})
+            self.assertEqual(status, 422)
 
     def call(self, name='project__read_project_file', arguments=None):
         return {'role': 'assistant', 'content': '', 'tool_calls': [{'function': {
@@ -175,6 +291,42 @@ class McpWebTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('MCP action rejected', json.dumps(events))
         self.assertFalse(self.sessions.get_messages(run['session_id']))
 
+    async def test_explicit_python_web_repairs_exact_source_and_displays_real_stdout(self):
+        self.web.app.state.mcp_servers = load_config(ROOT / 'configs/mcp.sandbox.json')
+        source = 'values=[10,20,30]\nprint(sum(values)/len(value))'
+        fixed = 'values=[10,20,30]\nprint(sum(values)/len(values))'
+        self.model.side_effect = [self.call('python__execute_python', {'code':fixed})]
+        run = await self.start(message='Calculate the mean',mode='ollama',python_code=source)
+        task, queue = await self.stream(run)
+        for expected in (source, fixed):
+            approval = await self.next_event(queue,'approval_request')
+            self.assertEqual(approval['arguments']['code'],expected)
+            self.assertEqual((await self.decision(run,approval))[0],200)
+        await asyncio.wait_for(task,10)
+        history = self.sessions.get_messages(run['session_id'])
+        self.assertIn(source, history[-2]['content'])
+        self.assertIn('Actual stdout:\n20.0',history[-1]['content'])
+        self.assertEqual(self.model.await_count,1)
+
+    async def test_explicit_python_rejection_never_runs_source(self):
+        self.web.app.state.mcp_servers = load_config(ROOT / 'configs/mcp.sandbox.json')
+        run = await self.start(message='Calculate',python_code='print(42)')
+        task, queue = await self.stream(run)
+        approval = await self.next_event(queue,'approval_request')
+        await self.decision(run,approval,approved=False)
+        await asyncio.wait_for(task,10)
+        events=self.events.get_events(run['run_id'])
+        self.assertFalse(any(e['type']=='tool_call' for e in events))
+        self.assertEqual(self.sessions.get_messages(run['session_id']),[])
+        self.model.assert_not_called()
+
+    async def test_explicit_python_policy_and_validation_precede_run_creation(self):
+        for code in ('',"print('a@example.com')",'x'*16385):
+            status,_=await self.request('POST','/api/runs',{'message':'run','mode':'mcp','python_code':code})
+            self.assertEqual(status,422)
+        self.assertEqual(self.web.app.state.runs,{})
+        self.model.assert_not_called()
+
     async def test_python_error_then_repair_uses_real_sandbox_and_two_web_approvals(self):
         from sandbox.runner import bubblewrap, SandboxError
         try:
@@ -201,7 +353,8 @@ class McpWebTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(results[1]['structuredContent']['stdout'], '42\n')
         self.assertFalse(results[1]['isError'])
         self.assertIn('ZeroDivisionError', str(self.model.call_args_list[1]))
-        self.assertEqual(self.sessions.get_messages(run['session_id'])[-1]['content'], 'Corrected result: 42')
+        self.assertEqual(self.sessions.get_messages(run['session_id'])[-1]['content'],
+                         'Python execution completed (exit code 0).\n\nActual stdout:\n42\n')
 
     async def test_stop_during_real_python_execution_discards_turn(self):
         from sandbox.runner import bubblewrap, SandboxError
@@ -288,7 +441,7 @@ class McpWebTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.decision(run, approval))[0], 409)
         self.assertFalse(any(e['type'] == 'tool_call' for e in self.events.get_events(run['run_id'])))
 
-    async def test_time_tool_is_automatic_and_policy_filters_final_answer(self):
+    async def test_time_tool_is_automatic_and_actual_result_replaces_model_claim(self):
         self.web.app.state.mcp_servers = self.servers[1:]
         self.model.side_effect = [self.call('time__get_current_time', {'timezone': 'Europe/Madrid'}),
                                   {'role': 'assistant', 'content': 'Contact a@example.com'}]
@@ -298,7 +451,12 @@ class McpWebTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('approval_request', body)
         self.assertIn('Europe/Madrid', body)
         self.assertNotIn('a@example.com', body)
-        self.assertEqual(self.sessions.get_messages(run['session_id'])[1]['content'], 'Contact [EMAIL]')
+        saved = self.sessions.get_messages(run['session_id'])[1]['content']
+        self.assertIn('Actual time tool result:', saved)
+        self.assertIn('Europe/Madrid', saved)
+        self.assertNotIn('Contact', saved)
+        actual = next(e['payload']['result'] for e in self.events.get_events(run['run_id']) if e['type'] == 'tool_result')
+        self.assertEqual(saved, 'Actual time tool result:\n' + '\n'.join(actual['content']))
 
     async def test_blocked_answer_does_not_leak_or_persist(self):
         self.model.side_effect = [{'role': 'assistant', 'content': 'SECRET_TEST'}]

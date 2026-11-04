@@ -28,7 +28,8 @@ def install_routes(app, config_path=None):
     @app.get('/api/mcp')
     async def status():
         return {'enabled': bool(app.state.mcp_servers), 'max_calls': 4,
-                'approval_timeout_seconds': 120}
+                'approval_timeout_seconds': 120,
+                'default_model': app.state.default_model, 'default_mode': app.state.mode}
 
     @app.get('/api/mcp/tools')
     async def tools():
@@ -60,7 +61,7 @@ async def turn_events(run):
     bound on event count (approval, call and result per call, plus final event).
     SDK contexts must be entered and exited inside the same worker task.
     """
-    from .runner import run_turn
+    from .runner import run_turn, run_python_task, run_optional_turn
     events = asyncio.Queue()
 
     async def approve(name, arguments):
@@ -83,9 +84,18 @@ async def turn_events(run):
 
     async def worker():
         try:
-            result = await run_turn(run['mcp_servers'], run['messages'], run['host'],
-                                    run['model'], run['timeout'], max_calls=4,
-                                    approve=approve, notify=notify, policy=run.get('guardrails'))
+            if run.get('python_code') is not None:
+                result = await run_python_task(run['mcp_servers'], run['python_code'],
+                    run['message'], run['host'], run['model'], run['timeout'], max_calls=4,
+                    approve=approve, notify=notify, policy=run.get('guardrails'))
+            elif run.get('automatic_tools'):
+                result = await run_optional_turn(run['mcp_servers'], run['messages'], run['host'],
+                    run['model'], run['timeout'], max_calls=4,
+                    approve=approve, notify=notify, policy=run.get('guardrails'))
+            else:
+                result = await run_turn(run['mcp_servers'], run['messages'], run['host'],
+                                        run['model'], run['timeout'], max_calls=4,
+                                        approve=approve, notify=notify, policy=run.get('guardrails'))
             events.put_nowait(('answer', result))
         except asyncio.CancelledError:
             events.put_nowait(('cancelled', None))

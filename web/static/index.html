@@ -221,6 +221,9 @@
       border: 0; background: transparent; color: var(--ink); outline: none; height: 100%;
       width: 7.5rem; padding: 0 .75rem 0 .1rem; font: 500 .82rem var(--mono); cursor: text;
     }
+    #tools-toggle { padding-right: .75rem; }
+    #tools-enabled { width: 16px; height: 16px; padding: 0; cursor: pointer; accent-color: var(--acc); }
+    #tools-toggle[hidden] { display: none; }
     .chip.persona { border-color: var(--acc-edge); background: var(--acc-wash); color: var(--acc-text); }
     .chip.persona .dd-btn { max-width: 13rem; }
     .chip.persona.flash { animation: flash .9s var(--out); }
@@ -514,9 +517,7 @@
       <label class="chip">Mode
         <select id="mode-select">
           <option value="stub" data-sub="Simulated replies, no model needed">Stub</option>
-          <option value="ollama" data-sub="Local model through the Ollama HTTP API">Ollama</option>
-          <option value="mcp" data-sub="Model calls configured tools; some actions need approval">MCP</option>
-          <option value="search" data-sub="Search the web, then answer using sources">Web search</option>
+          <option value="ollama" selected data-sub="Chat with automatic use of enabled tools">Chat</option>
           <option value="react" data-sub="Autonomous ReAct loop with step/time bounds">ReAct loop</option>
         </select>
       </label>
@@ -524,7 +525,8 @@
         <input id="model-input" type="text" value="llama3.2:1b" spellcheck="false" autocomplete="off">
       </label>
       <span class="grow"></span>
-      <button id="mcp-tools" class="btn" type="button" disabled>MCP tools</button>
+      <label class="chip" id="tools-toggle" hidden><input id="tools-enabled" type="checkbox" checked>Allow tools</label>
+      <button id="mcp-tools" class="btn" type="button" disabled>Tools</button>
       <button id="documents-btn" class="btn" type="button" aria-expanded="false" aria-controls="documents-panel">Documents</button>
       <button id="share-btn" class="btn" type="button" title="Publish a public snapshot of this chat">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 10V2M5 5l3-3 3 3M3 9v4h10V9"/></svg><span class="hide-sm">Share</span>
@@ -558,6 +560,14 @@
     <div id="share-link-box" class="share-box"></div>
     <div class="composer">
       <div class="wrap">
+        <details id="python-source" style="margin-bottom:10px">
+          <summary>Run supplied Python</summary>
+          <label for="python-code">Code to execute exactly before attempting any repair</label>
+          <textarea id="python-code" rows="5" maxlength="16384" spellcheck="false"
+            style="display:block;width:100%;min-height:100px;max-height:180px;overflow:auto;font-family:monospace"
+            placeholder="print(sum(range(11)))"></textarea>
+          <small>Describe the goal in your message. Review and approve each execution. Close this panel to send a normal message.</small>
+        </details>
         <form id="form">
           <textarea id="message" rows="1" autocomplete="off" aria-label="Message" placeholder="Ask Sensai anything…"></textarea>
           <button id="cancel" class="stop" type="button" disabled aria-label="Stop generating" title="Stop (Esc)">
@@ -842,13 +852,21 @@
     }).catch(() => { updateSearchStatus(); });
     modeSelect.addEventListener('change', updateSearchStatus);
 
+    let modelEdited = false, modeEdited = false;
+    modelInput.addEventListener('input', () => { modelEdited = true; });
+    modeSelect.addEventListener('change', () => { modeEdited = true; });
     fetch('/api/mcp').then(r => r.json()).then(info => {
+      document.getElementById('tools-toggle').hidden = !info.enabled;
+      if (['mcp', 'search'].includes(info.default_mode)) info.default_mode = 'ollama';
+      if (!modelEdited && info.default_model) modelInput.value = info.default_model;
+      if (!modeEdited && [...modeSelect.options].some(o => o.value === info.default_mode)) {
+        modeSelect.value = info.default_mode;
+        modeDD.render();
+        updateSearchStatus();
+      }
       mcpTools.disabled = !info.enabled;
       mcpTools.title = info.enabled ? 'List available tools and approval rules' : 'Start the server with SENSAI_MCP_CONFIG to enable MCP';
     }).catch(() => { mcpTools.title = 'Could not check MCP configuration'; });
-    modeSelect.addEventListener('change', () => {
-      if (modeSelect.value === 'mcp' && modelInput.value === 'llama3.2:1b') modelInput.value = 'qwen3:0.6b';
-    });
     mcpTools.addEventListener('click', async () => {
       mcpTools.disabled = true;
       try {
@@ -1149,6 +1167,12 @@
       }
       const message = input.value.trim();
       if (!message) return;
+      const pythonPanel = document.getElementById('python-source');
+      const pythonCode = pythonPanel.open ? document.getElementById('python-code').value : null;
+      if (pythonCode !== null && !pythonCode.trim()) {
+        setStatus('Enter Python code or close the code panel', 'fail');
+        return;
+      }
       const personaId = personaSelect.value || null;
       input.value = '';
       autosize();
@@ -1172,13 +1196,16 @@
             message,
             session_id: sessionId,
             persona_id: personaId,
-            mode: modeSelect.value,
+            mode: pythonCode !== null ? 'mcp' : modeSelect.value,
             model: modelInput.value,
+            python_code: pythonCode,
+            tools_enabled: document.getElementById('tools-enabled').checked,
           }),
         });
         const result = await response.json();
         if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : 'HTTP ' + response.status);
         runId = result.run_id;
+        pythonPanel.open = false;
         safeMessage = result.message;
         userLine.textContent = safeMessage;
       } catch (error) {
@@ -1215,7 +1242,13 @@
         setStatus('Calling ' + data.tool, 'busy');
       });
       currentSource.addEventListener('tool_result', e => {
-        const data = JSON.parse(e.data).payload;
+        let data = JSON.parse(e.data).payload;
+        const page = data.kind === 'mcp' && !data.result?.isError && data.tool?.endsWith('__search_web')
+          ? data.result?.structuredContent : null;
+        if (page && Array.isArray(page.results)) {
+          data = {kind: 'search', fetched_at: page.fetched_at, warnings: page.warnings || [],
+            sources: page.results.map((source, index) => ({...source, id: index + 1}))};
+        }
         if (data.kind === 'search') {
           const card = el('details', 'search-sources');
           card.open = true;
