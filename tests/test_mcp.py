@@ -248,7 +248,7 @@ class LoopTests(unittest.IsolatedAsyncioTestCase):
             await self.run_loop([self.call()], approve=lambda *_: True)
 
     async def test_plain_answer_does_not_invent_a_tool_trace(self):
-        result, _ = await self.run_loop([{'role': 'assistant', 'content': 'Hello'}])
+        result, _ = await self.run_loop([{'role': 'assistant', 'content': 'Hello'}], require_action=False)
         self.assertEqual(result.evidence, [])
         self.session.call_tool.assert_not_called()
 

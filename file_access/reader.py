@@ -8,6 +8,7 @@ from contextlib import contextmanager
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import stat
+from .policy import FilePolicy
 
 
 SUPPORTED = os.open in os.supports_dir_fd and all(
@@ -35,7 +36,8 @@ class WorkspaceReader:
     Individual requested paths may never traverse symbolic links.
     """
 
-    def __init__(self, root):
+    def __init__(self, root, policy=None):
+        self.policy = policy if policy is not None else FilePolicy()
         self._root_fd = None
         if not SUPPORTED:
             raise FileAccessError('File access requires Linux/WSL with directory-descriptor support.')
@@ -71,14 +73,21 @@ class WorkspaceReader:
             raise FileAccessError('Empty path components, . and .. are not allowed.')
         if any(part.startswith('.') for part in parts):
             raise FileAccessError('Hidden files and directories are not allowed.')
-        if PurePosixPath(relative_path).suffix.lower() not in EXTENSIONS:
-            raise FileAccessError('Allowed file extensions: .txt, .md, .py, .json.')
+        if PurePosixPath(relative_path).suffix.lower() not in self.policy.extensions:
+            raise FileAccessError('Allowed file extensions: ' + ', '.join(self.policy.extensions) + '.')
+        return parts
+
+    def _authorize(self, operation, relative_path):
+        # Pure checks only: denied paths must not be stat'ed, opened or read.
+        parts = self._path_parts(relative_path)
+        if not self.policy.permits(operation, relative_path):
+            raise FileAccessError('Permission denied for ' + operation + ': ' + relative_path)
         return parts
 
     @contextmanager
-    def _open_parent(self, relative_path):
+    def _open_parent(self, relative_path, operation="read"):
         """Open the checked parent directory without following symlinks."""
-        parts = self._path_parts(relative_path)
+        parts = self._authorize(operation, relative_path)
         directory_fd = None
         try:
             directory_fd = os.dup(self._root_fd)
@@ -103,14 +112,14 @@ class WorkspaceReader:
                     raise FileAccessError('Only regular text files can be read.')
                 if metadata.st_nlink != 1:
                     raise FileAccessError('Hard-linked files are not allowed.')
-                if metadata.st_size > MAX_BYTES:
-                    raise FileAccessError(f'File exceeds the {MAX_BYTES}-byte limit.')
+                if metadata.st_size > self.policy.max_bytes:
+                    raise FileAccessError(f'File exceeds the {self.policy.max_bytes}-byte limit.')
                 # Limit the read too: a file may grow after fstat().
                 with os.fdopen(file_fd, 'rb') as stream:
                     file_fd = None
-                    data = stream.read(MAX_BYTES + 1)
-            if len(data) > MAX_BYTES:
-                raise FileAccessError(f'File exceeds the {MAX_BYTES}-byte limit.')
+                    data = stream.read(self.policy.max_bytes + 1)
+            if len(data) > self.policy.max_bytes:
+                raise FileAccessError(f'File exceeds the {self.policy.max_bytes}-byte limit.')
             if b'\0' in data:
                 raise FileAccessError('Binary content is not allowed.')
             return FileSnapshot(relative_path, data.decode('utf-8'), len(data))
