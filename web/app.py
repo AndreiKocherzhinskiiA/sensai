@@ -11,6 +11,12 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 import uuid
+import sys
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
 from core.react import ReActLoop
 
 from fastapi import FastAPI, HTTPException, Query, Response, UploadFile, File
@@ -327,14 +333,47 @@ def get_session(session_id: str):
     return format_session_response(sess, app.state.session_store)
 
 
+def cancel_run_state(run: Dict[str, Any]) -> None:
+    run['cancelled'] = True
+    for key in ('mcp_task', 'search_task'):
+        task = run.get(key)
+        if task is not None and not task.done():
+            # Clear/delete routes run in FastAPI's worker pool, while these
+            # tasks belong to the event loop serving the response stream.
+            task.get_loop().call_soon_threadsafe(task.cancel)
+    if run.get('bridge') is not None:
+        run['bridge'].cancel()
+
+
+def cancel_session_runs(session_id: str) -> int:
+    cancelled = 0
+    for run in list(app.state.runs.values()):
+        if run.get('session_id') == session_id and not run['stream'].finished:
+            run['cleared'] = True
+            cancel_run_state(run)
+            cancelled += 1
+    return cancelled
+
+
 @app.post('/api/sessions/{session_id}/clear')
 def clear_session(session_id: str):
+    cancelled = cancel_session_runs(session_id)
     sess = app.state.session_store.get_session(session_id)
     # The browser chooses an ID before the first message creates its session.
     # Clearing that empty conversation (or a stale ID) is already complete.
+    removed = 0
     if sess:
-        app.state.session_store.clear_session_messages(session_id)
-    return {'status': 'cleared', 'session_id': session_id}
+        removed = app.state.session_store.clear_session_messages(session_id)
+    return {'status': 'cleared', 'session_id': session_id,
+            'removed_messages': removed, 'cancelled_runs': cancelled}
+
+
+@app.delete('/api/sessions/{session_id}')
+def delete_session(session_id: str):
+    cancel_session_runs(session_id)
+    if not app.state.session_store.delete_session(session_id):
+        raise HTTPException(status_code=404, detail='Session not found.')
+    return {'status': 'deleted', 'session_id': session_id}
 
 
 @app.post('/api/sessions/{session_id}/persona')
@@ -936,13 +975,7 @@ async def cancel_run(run_id: str):
         raise HTTPException(status_code=404, detail='Unknown run.')
     if run['stream'].finished:
         raise HTTPException(status_code=400, detail='Run already finished.')
-    run['cancelled'] = True
-    if run.get('mcp_task') is not None:
-        run['mcp_task'].cancel()
-    if run.get('search_task') is not None:
-        run['search_task'].cancel()
-    if run.get('bridge') is not None:
-        run['bridge'].cancel()
+    cancel_run_state(run)
     return {'run_id': run_id, 'status': 'cancelled'}
 
 
@@ -1081,7 +1114,6 @@ async def generate_events(run: Dict[str, Any]):
                     else:
                         yield to_sse(stream.emit(kind, **payload))
         elif mode == 'react':
-            from core.react import ReActLoop
             reactor = ReActLoop(max_steps=5, max_time_seconds=30.0)
 
             # Register your tools
@@ -1234,6 +1266,9 @@ async def generate_events(run: Dict[str, Any]):
             tokens = eval_tokens if eval_tokens > 0 else max(1, len(full_reply.split()))
             latency_ms = (time.time() - start_time) * 1000
 
+            if run.get('cleared'):
+                yield to_sse(stream.done('cancelled'))
+                return
             persist_turn(app.state.session_store, session_id, user_content, full_reply,
                          guardrails=policy)
 
@@ -1413,3 +1448,18 @@ def export_public_snapshot(snapshot_id: str, format: str = Query('json')):
             )
     except ExportError as err:
         raise HTTPException(status_code=404, detail=str(err))
+
+if __name__ == '__main__':
+    import argparse
+    import uvicorn
+
+    parser = argparse.ArgumentParser(description='SensAI Web Service')
+    parser.add_argument('--host', default=os.getenv('HOST', '127.0.0.1'), help='Host to bind to')
+    parser.add_argument('--port', type=int, default=int(os.getenv('PORT', '8000')), help='Port to bind to')
+    parser.add_argument('--reload', action='store_true', help='Enable auto-reload')
+    args = parser.parse_args()
+
+    if args.reload:
+        uvicorn.run('web.app:app', host=args.host, port=args.port, reload=True)
+    else:
+        uvicorn.run(app, host=args.host, port=args.port)

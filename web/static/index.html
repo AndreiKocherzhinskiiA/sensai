@@ -95,7 +95,7 @@
     * { box-sizing: border-box; }
     html, body { height: 100%; }
     body {
-      margin: 0; display: flex; flex-direction: column; overflow: hidden;
+      margin: 0; display: flex; flex-direction: row; overflow: hidden;
       background: var(--bg); color: var(--ink);
       font: 400 .9375rem/1.55 var(--sans);
       -webkit-font-smoothing: antialiased;
@@ -460,15 +460,212 @@
       .dots i, #status.busy::before, .msg.assistant.streaming .body::after, .send.ready svg, form.nudge { animation: none; }
       #log { scroll-behavior: auto; }
     }
+
+    .composer .wrap { position: relative; }
+    #sessions-btn { margin-right: .5rem; }
+    #sessions-backdrop { display: none; }
+    #app { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; }
+    #sessions-drawer {
+      flex: none; width: 17rem; height: 100%; display: flex; flex-direction: column;
+      background: var(--panel-solid); border-right: 1px solid var(--line);
+      transition: width .22s ease; overflow: hidden;
+    }
+    #sessions-drawer .drawer-header {
+      display: flex; align-items: center; justify-content: space-between; gap: .5rem;
+      padding: .75rem .85rem; border-bottom: 1px solid var(--line); background: none; backdrop-filter: none;
+      min-height: 56px; box-sizing: border-box;
+    }
+    #sessions-drawer .brand { min-width: 0; display: flex; align-items: center; gap: .65rem; text-decoration: none; color: var(--ink); }
+    #sessions-drawer .brand-text { display: flex; flex-direction: column; overflow: hidden; white-space: nowrap; }
+    .sidebar-toggle-btn { flex: none; }
+
+    .logo-box {
+      position: relative; display: inline-flex; align-items: center; justify-content: center;
+      width: 36px; height: 36px; border-radius: 10px; border: 1px solid transparent;
+      transition: background .18s ease, border-color .18s ease, box-shadow .18s ease;
+      flex: none;
+    }
+    .logo-box .enso {
+      width: 30px; height: 30px; display: block;
+      transition: opacity .18s ease, transform .2s ease;
+    }
+    .logo-box .expand-icon {
+      position: absolute; inset: 0; margin: auto; width: 20px; height: 20px;
+      opacity: 0; transform: scale(.7); pointer-events: none;
+      transition: opacity .18s ease, transform .2s ease; color: var(--ink);
+    }
+
+    body.side-collapsed #sessions-drawer {
+      width: 56px; min-width: 56px;
+    }
+    body.side-collapsed #sessions-drawer .drawer-header {
+      padding: .75rem 0; justify-content: center; border-bottom: 0;
+    }
+    body.side-collapsed #sessions-drawer .brand {
+      padding: 0; justify-content: center; cursor: pointer;
+    }
+    body.side-collapsed #sessions-drawer .drawer-header:hover .logo-box,
+    body.side-collapsed #sessions-drawer .brand:hover .logo-box {
+      background: var(--raise);
+      border-color: var(--line-strong);
+      box-shadow: 0 2px 6px var(--shadow);
+    }
+    body.side-collapsed #sessions-drawer .drawer-header:hover .enso,
+    body.side-collapsed #sessions-drawer .brand:hover .enso {
+      opacity: 0; transform: scale(.7);
+    }
+    body.side-collapsed #sessions-drawer .drawer-header:hover .expand-icon,
+    body.side-collapsed #sessions-drawer .brand:hover .expand-icon {
+      opacity: 1; transform: scale(1);
+    }
+    body.side-collapsed #sessions-drawer .brand-text,
+    body.side-collapsed #sessions-drawer .sidebar-toggle-btn,
+    body.side-collapsed #sessions-drawer #sessions-new-wrap,
+    body.side-collapsed #sessions-drawer .s-search,
+    body.side-collapsed #sessions-drawer #sessions-list,
+    body.side-collapsed #sessions-drawer .s-foot {
+      display: none !important;
+    }
+
+    @media (min-width: 56rem) {
+      .sidebar-extend-btn {
+        display: none !important;
+      }
+    }
+
+    @media (max-width: 55.99rem) {
+      #sessions-backdrop { display: block; position: fixed; inset: 0; z-index: 38; background: oklch(0% 0 0 / .45); opacity: 0; pointer-events: none; transition: opacity .2s; }
+      #sessions-backdrop.open { opacity: 1; pointer-events: auto; }
+      #sessions-drawer { position: fixed; top: 0; bottom: 0; left: 0; z-index: 40; width: min(20rem, 88vw); transform: translateX(-102%); transition: transform .25s ease; box-shadow: 0 0 40px var(--shadow); }
+      #sessions-drawer.open { transform: none; }
+      body.side-collapsed #sessions-drawer { width: min(20rem, 88vw); min-width: 0; }
+      body.side-collapsed #sessions-drawer .drawer-header { padding: .75rem .85rem; justify-content: space-between; border-bottom: 1px solid var(--line); }
+      body.side-collapsed #sessions-drawer .brand-text,
+      body.side-collapsed #sessions-drawer .sidebar-toggle-btn,
+      body.side-collapsed #sessions-drawer #sessions-new-wrap,
+      body.side-collapsed #sessions-drawer .s-foot {
+        display: flex !important;
+      }
+      body.side-collapsed #sessions-drawer #sessions-list { display: block !important; }
+      body.side-collapsed #sessions-drawer .s-search { display: block !important; }
+    }
+
+    header .wrap, .toolbar .wrap, .documents-panel .wrap { width: calc(100% - 3rem); }
+    #log .wrap, .composer .wrap { width: min(100% - 2rem, 62rem); }
+    #sessions-new-wrap { padding: .75rem .75rem 0; }
+    #session-new { width: 100%; justify-content: flex-start; gap: .5rem; height: 40px; font-weight: 500; }
+    .head-left { display: flex; align-items: center; gap: .5rem; }
+
+    #sessions-list {
+      flex: 1; overflow-y: auto; overflow-x: hidden; list-style: none; margin: 0; padding: .5rem;
+      scrollbar-width: thin;
+      scrollbar-color: transparent transparent;
+      transition: scrollbar-color .2s ease;
+    }
+    #sessions-list:hover {
+      scrollbar-color: var(--line-strong) transparent;
+    }
+    #sessions-list::-webkit-scrollbar {
+      width: 5px;
+    }
+    #sessions-list::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    #sessions-list::-webkit-scrollbar-thumb {
+      background: transparent;
+      border-radius: 99px;
+      transition: background .2s ease;
+    }
+    #sessions-list:hover::-webkit-scrollbar-thumb {
+      background: var(--line-strong);
+    }
+    #sessions-list::-webkit-scrollbar-thumb:hover {
+      background: var(--ink-3);
+    }
+    #sessions-list li { display: flex; align-items: center; gap: .25rem; border-radius: 10px; border: 1px solid transparent; }
+    #sessions-list li:hover { background: var(--hover-bg); }
+    #sessions-list li.active { background: var(--raise); border-color: var(--line-strong); }
+    #sessions-list .s-open { flex: 1; min-width: 0; text-align: left; background: none; border: 0; color: var(--ink); padding: .55rem .65rem; cursor: pointer; font: inherit; }
+    #sessions-list .s-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .86rem; font-weight: 500; }
+    #sessions-list .s-meta { display: block; color: var(--ink-3); font-size: .72rem; margin-top: .1rem; }
+    #sessions-list .s-del { background: none; border: 0; color: var(--ink-3); cursor: pointer; padding: .4rem .55rem; border-radius: 8px; font-size: 1rem; line-height: 1; opacity: 0; }
+    #sessions-list li:hover .s-del, #sessions-list .s-del:focus-visible { opacity: 1; }
+    #sessions-list .s-del:hover { color: var(--bad); }
+    #sessions-empty { color: var(--ink-3); font-size: .85rem; padding: 1rem; text-align: center; }
+    .s-search { padding: .6rem .75rem 0; }
+    .s-search input { width: 100%; box-sizing: border-box; padding: .5rem .7rem; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font: inherit; font-size: .85rem; }
+    .s-search input:focus { outline: none; border-color: var(--line-strong); }
+    #sessions-list .s-group { display: block; padding: .7rem .65rem .25rem; font-size: .68rem; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-3); }
+    #sessions-list li.s-group-li { border: 0; background: none !important; }
+    #sessions-list .s-act { background: none; border: 0; color: var(--ink-3); cursor: pointer; padding: .4rem .45rem; border-radius: 8px; line-height: 1; opacity: 0; display: inline-flex; }
+    #sessions-list .s-act svg { width: 14px; height: 14px; }
+    #sessions-list li:hover .s-act, #sessions-list li:focus-within .s-act, #sessions-list li.confirm .s-act, #sessions-list li.renaming .s-act { opacity: 1; }
+    #sessions-list .s-act:hover { color: var(--ink); background: var(--raise); }
+    #sessions-list .s-act.danger:hover { color: var(--bad); }
+    #sessions-list .s-badge { display: inline-block; margin-left: .35rem; padding: 0 .4rem; border-radius: 99px; background: var(--raise); color: var(--ink-3); font-size: .66rem; }
+    #sessions-list .s-rename { flex: 1; min-width: 0; margin: .3rem; padding: .3rem .5rem; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--ink); font: inherit; font-size: .86rem; }
+    #sessions-list li.confirm { background: var(--bad-wash) !important; border-color: color-mix(in oklch, var(--bad) 45%, transparent); }
+    #sessions-list .s-confirm-text { flex: 1; padding: .55rem .65rem; font-size: .82rem; color: var(--bad); }
+    #sessions-list .s-yes { background: var(--bad); color: #fff; border: 0; border-radius: 8px; padding: .3rem .6rem; font-size: .78rem; cursor: pointer; }
+    #sessions-list .s-no { background: none; border: 0; color: var(--ink-2); padding: .3rem .5rem; font-size: .78rem; cursor: pointer; }
+    .s-foot { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .6rem .85rem; border-top: 1px solid var(--line); font-size: .76rem; color: var(--ink-3); }
+    .s-foot .btn:hover { color: var(--bad); }
+    #cmd-hints {
+      position: absolute; left: 0; right: 0; bottom: calc(100% - .4rem); z-index: 30; max-height: 16rem; overflow-y: auto;
+      border-radius: 12px; border: 1px solid var(--line-strong); background: var(--panel-solid); box-shadow: 0 10px 30px var(--shadow); padding: .3rem;
+    }
+    #cmd-hints[hidden] { display: none; }
+    #cmd-hints .hint { display: flex; align-items: baseline; gap: .6rem; padding: .4rem .6rem; border-radius: 8px; cursor: pointer; font-size: .84rem; }
+    #cmd-hints .hint.sel, #cmd-hints .hint:hover { background: var(--hover-bg); }
+    #cmd-hints .h-name { font-family: var(--mono); color: var(--ink); white-space: nowrap; }
+    #cmd-hints .h-args { font-family: var(--mono); color: var(--ink-3); white-space: nowrap; }
+    #cmd-hints .h-desc { color: var(--ink-3); margin-left: auto; text-align: right; font-size: .78rem; }
   </style>
 </head>
 <body>
+  <div id="sessions-backdrop"></div>
+  <aside id="sessions-drawer" aria-label="Saved chats">
+    <header class="drawer-header">
+      <a class="brand" href="/" aria-label="Sensai home" title="Sensai">
+        <span class="logo-box">
+          <svg class="enso" viewBox="0 0 32 32" aria-hidden="true"><path class="stroke" stroke-width="3.4" d="M25.5 10.5A11 11 0 1 0 25.5 21.5"/><path class="stroke tail" stroke-width="1.5" d="M25.5 21.5A11 11 0 0 0 27 17"/><circle class="dot" cx="16" cy="16" r="2.6"/></svg>
+          <svg class="expand-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="14" height="14" rx="2.5"/>
+            <path d="M7.5 3v14"/>
+            <path d="M10.5 7.5l2.5 2.5-2.5 2.5"/>
+          </svg>
+        </span>
+        <span class="brand-text"><h1>Sensai</h1><small>Local AI assistant</small></span>
+      </a>
+      <button id="sidebar-collapse-btn" class="icon-btn sidebar-toggle-btn" type="button" aria-label="Collapse sidebar" title="Collapse sidebar">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="3" width="14" height="14" rx="2.5"/>
+          <path d="M7.5 3v14"/>
+          <path d="M12.5 7.5l-2.5 2.5 2.5 2.5"/>
+        </svg>
+      </button>
+    </header>
+    <div id="sessions-new-wrap"><button id="session-new" class="btn" type="button" title="Start a new chat (/new)">
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>New chat</button></div>
+    <div class="s-search"><input id="sessions-search" type="search" placeholder="Search chats…" aria-label="Search chats" autocomplete="off"></div>
+    <ul id="sessions-list"></ul>
+    <footer class="s-foot">
+      <span id="sessions-count"></span>
+      <button id="sessions-delete-all" class="btn" type="button">Delete all</button>
+    </footer>
+  </aside>
+  <div id="app">
   <header>
     <div class="wrap">
-      <a class="brand" href="/" aria-label="Sensai home">
-        <svg class="enso" viewBox="0 0 32 32" aria-hidden="true"><path class="stroke" stroke-width="3.4" d="M25.5 10.5A11 11 0 1 0 25.5 21.5"/><path class="stroke tail" stroke-width="1.5" d="M25.5 21.5A11 11 0 0 0 27 17"/><circle class="dot" cx="16" cy="16" r="2.6"/></svg>
-        <span><h1>Sensai</h1><small>Local AI assistant</small></span>
-      </a>
+      <div class="head-left">
+        <button id="sessions-btn" class="icon-btn sidebar-extend-btn" type="button" aria-label="Expand sidebar" aria-expanded="true" aria-controls="sessions-drawer" title="Expand sidebar">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="14" height="14" rx="2.5"/>
+            <path d="M7.5 3v14"/>
+            <path d="M10.5 7.5l2.5 2.5-2.5 2.5"/>
+          </svg>
+        </button>
+      </div>
       <div class="head-right">
         <div class="meter" id="budget-stats" aria-live="polite" title="Tokens used by the last run and by this session">
           <span class="lbl">last</span><b id="tok-last">0</b><span class="sep"></span><span class="lbl">session</span><b id="tok-session">0</b>
@@ -551,6 +748,7 @@
     </div>
   </section>
 
+
   <main>
     <div id="log" role="log" aria-live="polite" aria-label="Conversation" tabindex="0">
       <div class="wrap" id="log-inner"></div>
@@ -558,6 +756,7 @@
     <div id="share-link-box" class="share-box"></div>
     <div class="composer">
       <div class="wrap">
+        <div id="cmd-hints" role="listbox" aria-label="Slash commands" hidden></div>
         <form id="form">
           <textarea id="message" rows="1" autocomplete="off" aria-label="Message" placeholder="Ask Sensai anything…"></textarea>
           <button id="cancel" class="stop" type="button" disabled aria-label="Stop generating" title="Stop (Esc)">
@@ -576,6 +775,7 @@
       </div>
     </div>
   </main>
+  </div>
 
   <script>
     fetch('/api/guardrails').then(response => {
@@ -873,6 +1073,8 @@
     let sessionTotalTokens = 0;
     let currentMessages = [];
     let savedPersonaId = null;
+    let pendingFile = null;
+    let sessionLoadVersion = 0;
 
     const ICON_COPY = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.5A1 1 0 0 0 9.5 2.5h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/></svg>';
 
@@ -983,23 +1185,47 @@
       return body;
     }
 
-    fetch(`/api/sessions/${sessionId}`)
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        if (!data) return;
-        savedPersonaId = data.persona_id;
-        if (savedPersonaId) { personaSelect.value = savedPersonaId; personaDD.render(); }
-        if (Array.isArray(data.messages)) {
-          data.messages.forEach(m => {
-            if (m.role === 'user' || m.role === 'assistant') {
-              addLine(m.role, m.content);
-              currentMessages.push({role: m.role, content: m.content});
-            }
-          });
-        }
-      })
-      .catch(() => {})
-      .finally(showEmpty);
+    function applySessionData(data) {
+      savedPersonaId = data ? data.persona_id : null;
+      personaSelect.value = savedPersonaId || '';
+      personaDD.render();
+      if (data && Array.isArray(data.messages)) {
+        data.messages.forEach(m => {
+          if (m.role === 'user' || m.role === 'assistant') {
+            addLine(m.role, m.content);
+            currentMessages.push({role: m.role, content: m.content});
+          }
+        });
+      }
+    }
+
+    function resetView() {
+      sessionLoadVersion += 1;
+      pendingFile = null;
+      logInner.replaceChildren();
+      currentMessages = [];
+      sessionTotalTokens = 0;
+      setUsage(0, 0);
+      shareBox.classList.remove('show');
+    }
+
+    async function loadSession(id) {
+      sessionId = id;
+      localStorage.setItem('sensai_session_id', id);
+      resetView();
+      const version = sessionLoadVersion;
+      try {
+        const res = await fetch(`/api/sessions/${encodeURIComponent(id)}`);
+        const data = res.ok ? await res.json() : null;
+        if (version !== sessionLoadVersion) return;
+        applySessionData(data);
+      } catch (err) { }
+      if (version !== sessionLoadVersion) return;
+      showEmpty();
+      refreshSessions();
+    }
+
+    loadSession(sessionId);
 
     fetch('/api/personas')
       .then(res => res.ok ? res.json() : [])
@@ -1036,21 +1262,402 @@
       }
     });
 
-    clearBtn.addEventListener('click', async () => {
+    async function clearConversation() {
+      if (currentRunId) return;
       try {
-        const res = await fetch(`/api/sessions/${sessionId}/clear`, { method: 'POST' });
+        const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/clear`, { method: 'POST' });
         if (!res.ok) throw new Error('HTTP ' + res.status);
-        logInner.replaceChildren();
-        currentMessages = [];
-        sessionTotalTokens = 0;
-        setUsage(0, 0);
-        shareBox.classList.remove('show');
+        const data = await res.json();
+        if (data.status !== 'cleared') throw new Error('unexpected server reply');
+        resetView();
         showEmpty();
-        setStatus('Conversation cleared · system prompt kept');
+        setStatus('Conversation cleared (' + (data.removed_messages || 0) + ' messages removed)');
+        refreshSessions();
       } catch (err) {
-        addLine('error', 'Could not clear the chat: ' + err.message);
+        addLine('error', 'Could not clear the chat: ' + err.message, false);
       }
+    }
+    clearBtn.addEventListener('click', () => {
+      if (currentMessages.length && !confirm('Clear this conversation? Its saved messages will be deleted.')) return;
+      clearConversation();
     });
+
+    const sessionsBtn = document.getElementById('sessions-btn');
+    const drawer = document.getElementById('sessions-drawer');
+    const backdrop = document.getElementById('sessions-backdrop');
+    const sessionsList = document.getElementById('sessions-list');
+    let knownSessions = [];
+
+    const wideQuery = window.matchMedia('(min-width: 56rem)');
+    const collapseBtn = document.getElementById('sidebar-collapse-btn');
+    const drawerBrand = document.querySelector('#sessions-drawer .brand');
+
+    function drawerOpen() {
+      return wideQuery.matches ? !document.body.classList.contains('side-collapsed') : drawer.classList.contains('open');
+    }
+    const ICON_COLLAPSE = '<rect x="3" y="3" width="14" height="14" rx="2.5"/><path d="M7.5 3v14"/><path d="M12.5 7.5l-2.5 2.5 2.5 2.5"/>';
+    const ICON_EXPAND = '<rect x="3" y="3" width="14" height="14" rx="2.5"/><path d="M7.5 3v14"/><path d="M10.5 7.5l2.5 2.5-2.5 2.5"/>';
+
+    function updateToggleButton(open) {
+      if (!collapseBtn) return;
+      collapseBtn.setAttribute('title', open ? 'Collapse sidebar' : 'Expand sidebar');
+      collapseBtn.setAttribute('aria-label', open ? 'Collapse sidebar' : 'Expand sidebar');
+      const svg = collapseBtn.querySelector('svg');
+      if (svg) svg.innerHTML = open ? ICON_COLLAPSE : ICON_EXPAND;
+    }
+
+    function setDrawer(open) {
+      if (wideQuery.matches) {
+        document.body.classList.toggle('side-collapsed', !open);
+        localStorage.setItem('sensai_side_collapsed', open ? '0' : '1');
+      } else {
+        drawer.classList.toggle('open', open);
+        backdrop.classList.toggle('open', open);
+      }
+      sessionsBtn?.setAttribute('aria-expanded', String(open));
+      collapseBtn?.setAttribute('aria-expanded', String(open));
+      if (drawerBrand) drawerBrand.setAttribute('title', open ? 'Sensai' : 'Expand sidebar');
+      if (open) refreshSessions();
+    }
+        if (localStorage.getItem('sensai_side_collapsed') === '1') document.body.classList.add('side-collapsed');
+    sessionsBtn?.setAttribute('aria-expanded', String(drawerOpen()));
+    collapseBtn?.setAttribute('aria-expanded', String(drawerOpen()));
+    if (drawerBrand) drawerBrand.setAttribute('title', drawerOpen() ? 'Sensai' : 'Expand sidebar');
+
+    function onToggleClick(e) {
+      if (e) {
+        if (e.currentTarget === drawerBrand) {
+          if (wideQuery.matches && document.body.classList.contains('side-collapsed')) {
+            e.preventDefault();
+            setDrawer(true);
+            return;
+          }
+          return;
+        }
+        e.preventDefault();
+      }
+      setDrawer(!drawerOpen());
+    }
+
+    sessionsBtn?.addEventListener('click', onToggleClick);
+    collapseBtn?.addEventListener('click', onToggleClick);
+    drawerBrand?.addEventListener('click', onToggleClick);
+    backdrop.addEventListener('click', () => setDrawer(false));
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !wideQuery.matches && drawer.classList.contains('open')) setDrawer(false); });
+
+    function ago(ts) {
+      const sec = Math.max(0, Date.now() / 1000 - ts);
+      if (sec < 60) return 'just now';
+      if (sec < 3600) return Math.floor(sec / 60) + ' min ago';
+      if (sec < 86400) return Math.floor(sec / 3600) + ' h ago';
+      return new Date(ts * 1000).toLocaleDateString();
+    }
+
+    const ICON_EDIT = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2.5l2.5 2.5L5.5 13H3v-2.5z"/></svg>';
+    const ICON_DEL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4"/></svg>';
+    const sessionsSearch = document.getElementById('sessions-search');
+    const sessionsCount = document.getElementById('sessions-count');
+    let confirmingId = null;
+    let renamingId = null;
+
+    function dayGroup(ts) {
+      const d = new Date(ts * 1000), now = new Date();
+      const start = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+      const days = Math.round((start(now) - start(d)) / 86400000);
+      return days <= 0 ? 'Today' : days === 1 ? 'Yesterday' : days < 7 ? 'This week' : 'Older';
+    }
+
+    function renderSessions() {
+      sessionsList.replaceChildren();
+      const q = sessionsSearch.value.trim().toLowerCase();
+      const saved = knownSessions.filter(x => x.turns_count > 0 || x.id === sessionId);
+      const items = saved.filter(x => !q || (x.title || '').toLowerCase().includes(q));
+      sessionsCount.textContent = saved.filter(x => x.turns_count > 0).length + ' saved';
+      if (!items.length) {
+        const empty = el('li', null, q ? 'No chats match "' + sessionsSearch.value.trim() + '".' : 'No saved chats yet.');
+        empty.id = 'sessions-empty';
+        sessionsList.appendChild(empty);
+        return;
+      }
+      let lastGroup = null;
+      items.forEach(item => {
+        const group = dayGroup(item.updated_at);
+        if (group !== lastGroup) {
+          const g = el('li', 's-group-li');
+          g.appendChild(el('span', 's-group', group));
+          sessionsList.appendChild(g);
+          lastGroup = group;
+        }
+        const li = el('li', item.id === sessionId ? 'active' : '');
+        if (confirmingId === item.id) {
+          li.classList.add('confirm');
+          const yes = el('button', 's-yes', 'Delete'); yes.type = 'button';
+          const no = el('button', 's-no', 'Cancel'); no.type = 'button';
+          yes.addEventListener('click', () => { confirmingId = null; deleteSession(item.id, true); });
+          no.addEventListener('click', () => { confirmingId = null; renderSessions(); });
+          li.append(el('span', 's-confirm-text', 'Delete "' + (item.title || 'chat') + '"?'), yes, no);
+        } else if (renamingId === item.id) {
+          li.classList.add('renaming');
+          const field = el('input', 's-rename'); field.value = item.title || '';
+          field.setAttribute('aria-label', 'Chat title');
+          let done = false;
+          const finish = async save => {
+            if (done) return; done = true; renamingId = null;
+            const title = field.value.trim();
+            if (save && title && title !== item.title) await renameSession(item.id, title);
+            renderSessions();
+          };
+          field.addEventListener('keydown', e => { if (e.key === 'Enter') finish(true); if (e.key === 'Escape') { e.stopPropagation(); finish(false); } });
+          field.addEventListener('blur', () => finish(true));
+          li.appendChild(field);
+          sessionsList.appendChild(li);
+          field.focus(); field.select();
+          return;
+        } else {
+          const open = el('button', 's-open');
+          open.type = 'button';
+          const title = el('span', 's-title', item.title || 'New session');
+          const turns = Math.floor(item.turns_count / 2);
+          const meta = el('span', 's-meta', turns + (turns === 1 ? ' turn' : ' turns') + ' \u00b7 ' + ago(item.updated_at));
+          if (item.persona_id) meta.appendChild(el('span', 's-badge', item.persona_id));
+          open.append(title, meta);
+          open.addEventListener('click', () => switchSession(item.id));
+          open.addEventListener('dblclick', () => { renamingId = item.id; renderSessions(); });
+          const edit = el('button', 's-act'); edit.type = 'button'; edit.innerHTML = ICON_EDIT;
+          edit.title = 'Rename'; edit.setAttribute('aria-label', 'Rename chat');
+          edit.addEventListener('click', () => { renamingId = item.id; renderSessions(); });
+          const del = el('button', 's-act danger'); del.type = 'button'; del.innerHTML = ICON_DEL;
+          del.title = 'Delete'; del.setAttribute('aria-label', 'Delete chat');
+          del.addEventListener('click', () => { confirmingId = item.id; renderSessions(); });
+          li.append(open, edit, del);
+        }
+        sessionsList.appendChild(li);
+      });
+    }
+    sessionsSearch.addEventListener('input', renderSessions);
+
+    async function renameSession(id, title) {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/rename`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({title}) });
+      if (!res.ok) addLine('error', 'Could not rename the chat (HTTP ' + res.status + ').', false);
+      await refreshSessions();
+    }
+
+    document.getElementById('sessions-delete-all').addEventListener('click', async () => {
+      const saved = knownSessions.filter(x => x.turns_count > 0 || x.id === sessionId);
+      if (!saved.length) return;
+      if (currentRunId) { setStatus('Stop the current reply first', 'busy'); return; }
+      if (!confirm('Delete all ' + saved.length + ' chats permanently?')) return;
+      await Promise.all(knownSessions.map(x => fetch(`/api/sessions/${encodeURIComponent(x.id)}`, { method: 'DELETE' }).catch(() => {})));
+      await loadSession(newId());
+    });
+
+    async function refreshSessions() {
+      try {
+        const res = await fetch('/api/sessions');
+        if (!res.ok) return;
+        knownSessions = await res.json();
+        renderSessions();
+      } catch (err) { }
+    }
+
+    function newId() { return 'sess_' + Math.random().toString(36).substring(2, 10); }
+
+    async function switchSession(id) {
+      if (currentRunId) { setStatus('Wait for the reply to finish (or press Esc) before switching chats', 'busy'); return; }
+      if (id !== sessionId) await loadSession(id);
+      if (!wideQuery.matches) setDrawer(false);
+      input.focus();
+    }
+
+    async function newSession(title) {
+      if (currentRunId) { setStatus('Wait for the reply to finish (or press Esc) before starting a new chat', 'busy'); return; }
+      const id = newId();
+      try {
+        await fetch('/api/sessions', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({session_id: id, title: title || 'New session'}),
+        });
+      } catch (err) { }
+      await loadSession(id);
+      if (!wideQuery.matches) setDrawer(false);
+      input.focus();
+    }
+
+    async function deleteSession(id, confirmed) {
+      if (currentRunId && id === sessionId) { setStatus('Stop the current reply before deleting this chat', 'busy'); return; }
+      if (!confirmed && !confirm('Delete this chat permanently?')) return;
+      try {
+        const res = await fetch(`/api/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        if (!res.ok && res.status !== 404) throw new Error('HTTP ' + res.status);
+      } catch (err) { addLine('error', 'Could not delete the chat: ' + err.message, false); return; }
+      if (id === sessionId) {
+        const next = knownSessions.find(x => x.id !== id && x.turns_count > 0);
+        if (next) await loadSession(next.id); else await loadSession(newId());
+      } else {
+        refreshSessions();
+      }
+    }
+    document.getElementById('session-new').addEventListener('click', () => newSession());
+
+    const MODES = {
+      stub: 'Simulated replies', ollama: 'Local model', mcp: 'MCP tools',
+      search: 'Web search', react: 'ReAct loop',
+    };
+    const note = text => { const n = addLine('sys-note', text); n.style.whiteSpace = 'pre-wrap'; return n; };
+    const personaOptions = () => Array.from(personaSelect.options).map(o => ({value: o.value || 'default', desc: o.textContent}));
+
+    const COMMANDS = [
+      {name: 'help', desc: 'List all commands', run: () => note(COMMANDS.map(c => '/' + c.name + (c.args ? ' ' + c.args : '') + ' \u2014 ' + c.desc).join('\n'))},
+      {name: 'new', args: '[title]', desc: 'Start a new chat', run: arg => newSession(arg)},
+      {name: 'clear', desc: 'Clear this chat\u2019s messages', run: () => clearConversation()},
+      {name: 'sessions', desc: 'Show the chats sidebar', run: () => setDrawer(true)},
+      {name: 'switch', args: '<number|title>', desc: 'Switch to a saved chat',
+        options: () => knownSessions.filter(x => x.turns_count > 0).map((x, i) => ({value: String(i + 1), desc: x.title})),
+        run: async arg => {
+          await refreshSessions();
+          const list = knownSessions.filter(x => x.turns_count > 0);
+          const q = (arg || '').toLowerCase();
+          const hit = /^\d+$/.test(q) ? list[Number(q) - 1]
+            : list.find(x => x.id === arg) || list.find(x => (x.title || '').toLowerCase().includes(q));
+          if (!arg || !hit) { note(list.length ? 'Usage: /switch <number|title>\n' + list.map((x, i) => (i + 1) + '. ' + x.title).join('\n') : 'No saved chats yet.'); return; }
+          await switchSession(hit.id);
+        }},
+      {name: 'rename', args: '<title>', desc: 'Rename this chat', run: async arg => {
+        if (!arg) { note('Usage: /rename <title>'); return; }
+        const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/rename`, {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({title: arg}) });
+        if (res.ok) { setStatus('Chat renamed'); refreshSessions(); }
+        else note(res.status === 404 ? 'Nothing to rename yet \u2014 send a message first.' : 'Could not rename (HTTP ' + res.status + ').');
+      }},
+      {name: 'delete', desc: 'Delete this chat', run: () => deleteSession(sessionId)},
+      {name: 'persona', args: '[id|default]', desc: 'List or switch persona', options: personaOptions, run: arg => {
+        const opts = personaOptions();
+        if (!arg) { note('Personas: ' + opts.map(o => o.value + (o.value === (personaSelect.value || 'default') ? ' (active)' : '')).join(', ')); return; }
+        const hit = opts.find(o => o.value === arg);
+        if (!hit) { note('Unknown persona "' + arg + '". Type /persona to list them.'); return; }
+        personaSelect.value = hit.value === 'default' ? '' : hit.value;
+        personaDD.render();
+        personaSelect.dispatchEvent(new Event('change'));
+      }},
+      {name: 'mode', args: '<stub|ollama|mcp|search|react>', desc: 'Change chat mode',
+        options: () => Object.entries(MODES).map(([value, desc]) => ({value, desc})), run: arg => {
+        if (!arg) { note('Mode: ' + modeSelect.value + '. Available: ' + Object.keys(MODES).join(', ')); return; }
+        if (!MODES[arg]) { note('Unknown mode "' + arg + '". Available: ' + Object.keys(MODES).join(', ')); return; }
+        modeSelect.value = arg; modeDD.render(); modeSelect.dispatchEvent(new Event('change'));
+        setStatus('Mode: ' + arg);
+      }},
+      {name: 'model', args: '<name>', desc: 'Set the Ollama model', run: arg => {
+        if (!arg) { note('Model: ' + modelInput.value); return; }
+        modelInput.value = arg; setStatus('Model: ' + arg);
+      }},
+      {name: 'mcp', args: '<request>', desc: 'Ask using MCP tools (this message only)', send: 'mcp'},
+      {name: 'search', args: '<query>', desc: 'Ask using web search (this message only)', send: 'search'},
+      {name: 'react', args: '<task>', desc: 'Run the ReAct loop (this message only)', send: 'react'},
+      {name: 'tools', desc: 'List available MCP tools', run: () => { if (mcpTools.disabled) note('MCP is disabled on this server.'); else mcpTools.click(); }},
+      {name: 'docs', desc: 'Show / hide the knowledge base documents', run: () => document.getElementById('documents-btn').click()},
+      {name: 'read', args: '<path>', desc: 'Attach a workspace file to the next message', run: arg => {
+        if (!arg) { pendingFile = null; note('Usage: /read <relative-path>. Pending file cleared.'); return; }
+        pendingFile = arg; note('"' + arg + '" will accompany your next message.');
+      }},
+      {name: 'share', desc: 'Publish a public snapshot of this chat', run: () => shareBtn.click()},
+    ];
+
+    async function runSlash(text) {
+      const m = /^\/(\S*)\s*([\s\S]*)$/.exec(text);
+      const name = (m[1] || '').toLowerCase();
+      const arg = m[2].trim();
+      const cmd = COMMANDS.find(c => c.name === name);
+      if (!cmd) {
+        addLine('error', 'Unknown command "/' + name + '". Type /help to see all commands.', false);
+        return {keepInput: true};
+      }
+      if (cmd.send) {
+        if (!arg) { note('Usage: /' + cmd.name + ' ' + cmd.args); return {}; }
+        return {send: {message: arg, mode: cmd.send}};
+      }
+      addLine('user', text);
+      try { await cmd.run(arg); }
+      catch (err) { addLine('error', '/' + cmd.name + ' failed: ' + err.message, false); }
+      return {};
+    }
+
+    const hints = document.getElementById('cmd-hints');
+    let hintItems = [];
+    let hintIndex = 0;
+
+    function hideHints() { hints.hidden = true; hintItems = []; }
+
+    function computeHints() {
+      const v = input.value;
+      if (!v.startsWith('/') || v.includes('\n')) return [];
+      const m = /^\/(\S*)(\s+)?(.*)$/.exec(v);
+      const name = m[1].toLowerCase();
+      if (!m[2]) {
+        const starts = COMMANDS.filter(c => c.name.startsWith(name));
+        const rest = COMMANDS.filter(c => !c.name.startsWith(name) && c.name.includes(name));
+        return starts.concat(rest).map(c => ({kind: 'cmd', cmd: c}));
+      }
+      const cmd = COMMANDS.find(c => c.name === name);
+      if (!cmd || !cmd.options) return [];
+      const q = m[3].toLowerCase();
+      return cmd.options().filter(o => o.value.toLowerCase().includes(q)).map(o => ({kind: 'opt', cmd, opt: o}));
+    }
+
+    function renderHints() {
+      hintItems = computeHints();
+      if (!hintItems.length) { hints.hidden = true; return; }
+      hintIndex = Math.min(hintIndex, hintItems.length - 1);
+      hints.replaceChildren();
+      hintItems.forEach((h, i) => {
+        const row = el('div', 'hint' + (i === hintIndex ? ' sel' : ''));
+        row.setAttribute('role', 'option');
+        if (h.kind === 'cmd') {
+          row.append(el('span', 'h-name', '/' + h.cmd.name));
+          if (h.cmd.args) row.append(el('span', 'h-args', h.cmd.args));
+          row.append(el('span', 'h-desc', h.cmd.desc));
+        } else {
+          row.append(el('span', 'h-name', h.opt.value), el('span', 'h-desc', h.opt.desc || ''));
+        }
+        row.addEventListener('mousedown', e => { e.preventDefault(); hintIndex = i; acceptHint(); });
+        hints.appendChild(row);
+      });
+      hints.hidden = false;
+      hints.querySelector('.sel')?.scrollIntoView({block: 'nearest'});
+    }
+
+    function acceptHint() {
+      const h = hintItems[hintIndex];
+      if (!h) return false;
+      input.value = h.kind === 'cmd' ? '/' + h.cmd.name + (h.cmd.args ? ' ' : '') : '/' + h.cmd.name + ' ' + h.opt.value;
+      autosize();
+      hintIndex = 0;
+      renderHints();
+      input.focus();
+      return true;
+    }
+
+    input.addEventListener('input', () => { hintIndex = 0; renderHints(); });
+    input.addEventListener('blur', () => setTimeout(hideHints, 120));
+    input.addEventListener('keydown', e => {
+      if (hints.hidden || !hintItems.length) return;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        hintIndex = (hintIndex + (e.key === 'ArrowDown' ? 1 : -1) + hintItems.length) % hintItems.length;
+        renderHints();
+      } else if (e.key === 'Tab') {
+        e.preventDefault(); acceptHint();
+      } else if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+        const h = hintItems[hintIndex];
+        const typed = input.value.trim().toLowerCase();
+        const exact = h && (h.kind === 'cmd' ? typed === '/' + h.cmd.name : typed === '/' + h.cmd.name + ' ' + h.opt.value.toLowerCase());
+        if (h && !exact && !(h.kind === 'cmd' && /\s/.test(typed))) {
+          e.preventDefault(); e.stopImmediatePropagation(); acceptHint();
+        }
+      } else if (e.key === 'Escape') {
+        e.stopPropagation(); hideHints();
+      }
+    }, true);
 
     shareBtn.addEventListener('click', async () => {
       if (currentMessages.length === 0) {
@@ -1107,6 +1714,7 @@
         currentSource = null;
       }
       currentRunId = null;
+      refreshSessions();
       document.querySelector('.msg.assistant.streaming, .msg.assistant.waiting')?.classList.remove('streaming', 'waiting');
     }
 
@@ -1147,8 +1755,17 @@
         form.classList.add('nudge');
         return;
       }
-      const message = input.value.trim();
+      let message = input.value.trim();
       if (!message) return;
+      let modeOverride = null;
+      if (message.startsWith('/')) {
+        const outcome = await runSlash(message);
+        if (outcome.keepInput) return;
+        if (!outcome.send) { input.value = ''; autosize(); hideHints(); return; }
+        message = outcome.send.message;
+        modeOverride = outcome.send.mode || null;
+      }
+      hideHints();
       const personaId = personaSelect.value || null;
       input.value = '';
       autosize();
@@ -1172,13 +1789,15 @@
             message,
             session_id: sessionId,
             persona_id: personaId,
-            mode: modeSelect.value,
+            mode: modeOverride || modeSelect.value,
             model: modelInput.value,
+            ...(pendingFile ? {file_read: pendingFile} : {}),
           }),
         });
         const result = await response.json();
         if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : 'HTTP ' + response.status);
         runId = result.run_id;
+        pendingFile = null;
         safeMessage = result.message;
         userLine.textContent = safeMessage;
       } catch (error) {
