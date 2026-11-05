@@ -1574,6 +1574,11 @@ def public_base_url(request: Request) -> Tuple[str, bool]:
 
 @app.post('/api/snapshots')
 def create_snapshot(req: PublishSnapshotRequest, request: Request):
+    if req.custom_id is not None and not re.fullmatch(r'[A-Za-z0-9_-]{6,64}', req.custom_id):
+        raise HTTPException(status_code=422, detail='custom_id must be 6-64 letters, digits, "-" or "_".')
+    if req.custom_id is not None:
+        input_value(app, req.custom_id)
+        require_safe_export(app, req.custom_id)
     try:
         snap = app.state.snapshots.publish_snapshot(
             title=output_value(app, input_value(app, req.title)),
@@ -1584,6 +1589,7 @@ def create_snapshot(req: PublishSnapshotRequest, request: Request):
         publish_error = None
         if remote_config() is not None:
             try:
+                require_safe_export(app, snap)
                 remote_url = publish_remote(app.state.snapshots, snap['snapshot_id'])
                 return {**snap, 'url': remote_url, 'is_public': True, 'remote': True}
             except RemotePublishError as err:

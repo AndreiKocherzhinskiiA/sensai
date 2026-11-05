@@ -259,6 +259,7 @@ _HELV = [278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 2
          333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556,
          556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584]
 
+MAX_PDF_CHARS = 400_000  # bound rendering work for oversized snapshots
 PAGE_W, PAGE_H = 595.28, 841.89
 MARGIN_X, TOP, BOTTOM = 56.0, 800.0, 64.0
 TEXT_W = PAGE_W - 2 * MARGIN_X
@@ -280,15 +281,18 @@ def _text_width(text: str, size: float, font: str) -> float:
 def _wrap(text: str, size: float, font: str, width: float) -> List[str]:
     lines, cur = [], ''
     for word in text.split():
-        while _text_width(word, size, font) > width:  # break very long words
-            cut = len(word)
-            while cut > 1 and _text_width(word[:cut], size, font) > width:
-                cut -= 1
+        if _text_width(word, size, font) > width:  # break very long words in one linear pass
             if cur:
                 lines.append(cur)
                 cur = ''
-            lines.append(word[:cut])
-            word = word[cut:]
+            start, run = 0, 0.0
+            for i, ch in enumerate(word):
+                w = _text_width(ch, size, font)
+                if run + w > width and i > start:
+                    lines.append(word[start:i])
+                    start, run = i, 0.0
+                run += w
+            word = word[start:]
         trial = f'{cur} {word}'.strip()
         if cur and _text_width(trial, size, font) > width:
             lines.append(cur)
@@ -460,6 +464,13 @@ class _Pdf:
 def render_pdf(title: str, sections: List[Tuple[str, str]], date: Optional[float] = None, roles: bool = False) -> bytes:
     """sections: (heading, markdown body). With roles=True headings are chat roles drawn as coloured labels."""
     pdf = _Pdf(title)
+    budget = MAX_PDF_CHARS
+    capped = []
+    for heading, body in sections:
+        body = (body or '')[:max(budget, 0)]
+        budget -= len(body)
+        capped.append((heading, body))
+    sections = capped
     pdf.text(MARGIN_X, pdf.y - 8, 'SENSAI', 8.5, 'bold', _ACCENT, spacing=1.6)
     pdf.text(PAGE_W - MARGIN_X - _text_width(format_date(date), 9, 'regular'), pdf.y - 8, format_date(date), 9, 'regular', _MUTED)
     pdf.y -= 22
