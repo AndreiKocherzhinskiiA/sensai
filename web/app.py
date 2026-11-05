@@ -258,7 +258,7 @@ def dashboard():
 @app.get('/api/personas')
 def list_personas():
     try:
-        return [{**p, 'builtin': p['id'] in BUILTIN_IDS} for p in load_personas().values()]
+        return output_value(app, [{**p, 'builtin': p['id'] in BUILTIN_IDS} for p in load_personas().values()])
     except PersonaError as error:
         raise HTTPException(status_code=500, detail=str(error))
 
@@ -269,6 +269,15 @@ class PersonaRequest(BaseModel):
     tone: str = ''
     role: str = ''
     scope: str = ''
+
+
+def _checked_persona(req: 'PersonaRequest'):
+    """Persona text is stored and later enters prompts; refuse text the guardrail policy would change."""
+    data = req.dict()
+    for field in ('name', 'role', 'tone', 'scope'):
+        if input_value(app, data[field]) != data[field]:
+            raise HTTPException(status_code=422, detail='Persona fields must not contain personal data.')
+    return data
 
 
 def _persona_write(action, *args):
@@ -283,14 +292,14 @@ def _persona_write(action, *args):
 
 @app.post('/api/personas')
 def add_persona(req: PersonaRequest):
-    persona = _persona_write(create_persona, req.dict())
-    return {**persona, 'builtin': False}
+    persona = _persona_write(create_persona, _checked_persona(req))
+    return output_value(app, {**persona, 'builtin': False})
 
 
 @app.put('/api/personas/{persona_id}')
 def edit_persona(persona_id: str, req: PersonaRequest):
-    persona = _persona_write(update_persona, persona_id, req.dict())
-    return {**persona, 'builtin': False}
+    persona = _persona_write(update_persona, persona_id, _checked_persona(req))
+    return output_value(app, {**persona, 'builtin': False})
 
 
 @app.delete('/api/personas/{persona_id}')
