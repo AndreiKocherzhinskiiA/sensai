@@ -42,6 +42,9 @@ from core.chat import (
     stream_reply,
 )
 from core.config import settings
+from core.budget import calculate_history_tokens, estimate_tokens
+
+CONTEXT_WINDOW = int(os.environ.get('SENSAI_CONTEXT_WINDOW', '4096'))
 from events.contract import EventStream, to_sse
 from events.store import EventStore
 from evaluation.judge import EvaluationError, evaluate_response
@@ -1064,7 +1067,18 @@ async def generate_events(run: Dict[str, Any]):
     policy = run.get('guardrails')
 
     start_time = time.time()
+    prompt_tokens = calculate_history_tokens(run.get('messages') or [])
+    streamed_chars = 0
+
+    def usage_event(final=False):
+        completion = estimate_tokens(''.join(parts)) if parts else 0
+        return to_sse(stream.emit(
+            'usage', prompt_tokens=prompt_tokens, completion_tokens=completion,
+            context_limit=CONTEXT_WINDOW, final=final,
+        ))
+
     try:
+        yield usage_event()
         if retrieved:
             yield to_sse(stream.emit('tool_call', tool='retrieval', query=run['message']))
             sources = [
@@ -1243,6 +1257,10 @@ async def generate_events(run: Dict[str, Any]):
                     if event_kind == 'chunk':
                         parts.append(val)
                         yield to_sse(stream.emit('text_delta', text=val))
+                        streamed_chars += len(val)
+                        if streamed_chars >= 4:  # live count roughly every token
+                            streamed_chars = 0
+                            yield usage_event()
                     elif event_kind == 'error':
                         raise val
             except ChatError as err:
@@ -1331,6 +1349,12 @@ async def generate_events(run: Dict[str, Any]):
                 persist_turn(app.state.session_store, session_id, user_content, full_reply,
                              guardrails=policy)
 
+            real_prompt = stats.get('prompt_eval_count') or prompt_tokens
+            real_completion = stats.get('eval_count') or estimate_tokens(full_reply)
+            yield to_sse(stream.emit(
+                'usage', prompt_tokens=real_prompt, completion_tokens=real_completion,
+                context_limit=CONTEXT_WINDOW, final=True,
+            ))
             yield to_sse(stream.emit('metrics', tokens=tokens, latency_ms=latency_ms))
             yield to_sse(stream.done('completed'))
 

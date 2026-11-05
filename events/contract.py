@@ -4,7 +4,7 @@ import uuid
 
 EVENT_TYPES = (
     'text_delta', 'tool_call', 'tool_result', 'approval_request',
-    'form_request', 'metrics', 'evaluation', 'error', 'done',
+    'form_request', 'metrics', 'usage', 'evaluation', 'error', 'done',
 )
 RUN_STATUSES = (
     'running', 'awaiting_input', 'awaiting_approval',

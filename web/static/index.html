@@ -142,6 +142,11 @@
     .meter b { color: var(--ink); font-weight: 500; display: inline-block; }
     .meter .sep { width: 1px; height: .9rem; background: var(--line-strong); }
     .meter.bump b { animation: bump .5s var(--spring); }
+    .ctxbar { width: 54px; height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; }
+    .ctxbar i { display: block; height: 100%; width: 0; background: var(--acc-text, currentColor); transition: width .12s linear, background .2s; }
+    .ctxbar.warn i { background: #d9a400; }
+    .ctxbar.full i { background: #d64545; }
+    .meter.live b#tok-live { color: var(--acc-text, var(--ink)); }
     @keyframes bump { 40% { transform: translateY(-3px); color: var(--acc-text); } }
     .nav-link {
       display: inline-flex; align-items: center; gap: .4rem; height: 36px; padding: 0 .8rem; border-radius: 999px;
@@ -1024,6 +1029,10 @@
         </button>
       </div>
       <div class="head-right">
+        <div class="meter" id="ctx-meter" title="Context window used by this run (prompt + generated tokens, live)">
+          <span class="lbl">ctx</span><b id="tok-live">0</b><span class="lbl">/<span id="ctx-limit">4096</span></span>
+          <span class="ctxbar" id="ctx-bar"><i></i></span>
+        </div>
         <div class="meter" id="budget-stats" aria-live="polite" title="Tokens used by the last run and by this session">
           <span class="lbl">last</span><b id="tok-last">0</b><span class="sep"></span><span class="lbl">session</span><b id="tok-session">0</b>
         </div>
@@ -1867,6 +1876,22 @@
       status.className = state || '';
     }
 
+    function setLiveUsage(u) {
+      const used = (u.prompt_tokens || 0) + (u.completion_tokens || 0);
+      const limit = u.context_limit || 4096;
+      const pct = Math.min(100, used / limit * 100);
+      const meter = document.getElementById('ctx-meter');
+      document.getElementById('tok-live').textContent = used;
+      document.getElementById('ctx-limit').textContent = limit;
+      const bar = document.getElementById('ctx-bar');
+      bar.firstElementChild.style.width = pct + '%';
+      bar.classList.toggle('warn', pct >= 70 && pct < 90);
+      bar.classList.toggle('full', pct >= 90);
+      meter.classList.toggle('live', !u.final);
+      meter.title = 'Context: ' + (u.prompt_tokens || 0) + ' prompt + ' + (u.completion_tokens || 0) +
+        ' generated of ' + limit + (u.final ? '' : ' (live estimate)');
+    }
+
     function setUsage(last, total) {
       tokLast.textContent = last;
       tokSession.textContent = total;
@@ -2701,6 +2726,39 @@
       input.style.height = Math.min(input.scrollHeight, 192) + 'px';
       send.classList.toggle('ready', input.value.trim().length > 0);
     }
+    // Terminal-style prompt history: ArrowUp/ArrowDown recall earlier prompts.
+    const sentHistory = [];
+    let histPos = -1, histDraft = '';
+    function histList() {
+      return sentHistory.length ? sentHistory
+        : currentMessages.filter(m => m.role === 'user').map(m => m.content);
+    }
+    function histSet(text) {
+      input.value = text;
+      autosize();
+      input.setSelectionRange(text.length, text.length);
+    }
+    input.addEventListener('input', () => { histPos = -1; });
+    input.addEventListener('keydown', (e) => {
+      if ((e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.isComposing) return;
+      if (!hints.hidden && hintItems.length) return;
+      const list = histList();
+      if (e.key === 'ArrowUp') {
+        // Only when caret sits on the first line, so multi-line editing still works.
+        if (input.value.slice(0, input.selectionStart).includes('\n')) return;
+        if (!list.length || histPos >= list.length - 1) return;
+        e.preventDefault();
+        if (histPos === -1) histDraft = input.value;
+        histPos++;
+        histSet(list[list.length - 1 - histPos]);
+      } else {
+        if (histPos === -1) return;
+        if (input.value.slice(input.selectionEnd).includes('\n')) return;
+        e.preventDefault();
+        histPos--;
+        histSet(histPos === -1 ? histDraft : list[list.length - 1 - histPos]);
+      }
+    });
     input.addEventListener('input', autosize);
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
@@ -2720,6 +2778,8 @@
       }
       let message = input.value.trim();
       if (!message) return;
+      if (sentHistory[sentHistory.length - 1] !== message) sentHistory.push(message);
+      histPos = -1;
       let modeOverride = null;
       if (message.startsWith('/')) {
         const outcome = await runSlash(message);
@@ -2904,6 +2964,14 @@
         const ok = p.status === 'approved';
         resolveApproval(ok ? 'approved' : 'rejected', ok ? 'Approved · file written' : 'Rejected · nothing written');
         setStatus('Run ' + runId.slice(0, 8) + ' · ' + p.status, 'busy');
+      });
+
+      currentSource.addEventListener('usage', (e) => {
+        const u = JSON.parse(e.data).payload;
+        setLiveUsage(u);
+        if (!u.final && replyNode.classList.contains('streaming')) {
+          setStatus('Run ' + runId.slice(0, 8) + ' · streaming · ' + (u.completion_tokens || 0) + ' tokens', 'busy');
+        }
       });
 
       currentSource.addEventListener('metrics', (e) => {
