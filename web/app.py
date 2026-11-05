@@ -1,4 +1,5 @@
 import asyncio
+import ipaddress
 from contextlib import suppress
 from copy import deepcopy
 import json
@@ -9,7 +10,8 @@ import re
 import secrets
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote, urlparse
 import uuid
 import sys
 
@@ -19,7 +21,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from core.react import ReActLoop
 
-from fastapi import FastAPI, HTTPException, Query, Response, UploadFile, File
+from fastapi import FastAPI, HTTPException, Query, Request, Response, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, StreamingResponse
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -48,6 +50,7 @@ CONTEXT_WINDOW = int(os.environ.get('SENSAI_CONTEXT_WINDOW', '4096'))
 from events.contract import EventStream, to_sse
 from events.store import EventStore
 from evaluation.judge import EvaluationError, evaluate_response
+from export.remote import RemotePublishError, publish_remote, remote_config
 from export.service import ExportError, SnapshotStore, sanitize_snapshot_data
 from file_access.reader import FileAccessError, FileSnapshot, SUPPORTED, WorkspaceReader
 from file_access.writer import CreatePlan, WorkspaceWriter
@@ -258,7 +261,14 @@ def dashboard():
 @app.get('/api/personas')
 def list_personas():
     try:
-        return output_value(app, [{**p, 'builtin': p['id'] in BUILTIN_IDS} for p in load_personas().values()])
+        visible = []
+        for p in load_personas().values():
+            item = {**p, 'builtin': p['id'] in BUILTIN_IDS}
+            try:
+                visible.append(output_value(app, item))
+            except HTTPException:
+                continue  # One unsafe legacy persona must not hide the others.
+        return visible
     except PersonaError as error:
         raise HTTPException(status_code=500, detail=str(error))
 
@@ -274,8 +284,12 @@ class PersonaRequest(BaseModel):
 def _checked_persona(req: 'PersonaRequest'):
     """Persona text is stored and later enters prompts; refuse text the guardrail policy would change."""
     data = req.dict()
-    for field in ('name', 'role', 'tone', 'scope'):
-        if input_value(app, data[field]) != data[field]:
+    for field in ('id', 'name', 'role', 'tone', 'scope'):
+        value = data.get(field)
+        if not value:
+            continue
+        # Check both gates before saving, so a stored persona can never fail the output gate later.
+        if input_value(app, value) != value or output_value(app, value) != value:
             raise HTTPException(status_code=422, detail='Persona fields must not contain personal data.')
     return data
 
@@ -1532,15 +1546,54 @@ def export_artifact(artifact_id: str, format: str = Query('md')):
 
 
 
-@app.post('/api/snapshots')
-def create_snapshot(req: PublishSnapshotRequest):
+def _is_private_host(host: str) -> bool:
+    host = (host or '').strip('[]').lower()
+    if host in ('localhost', '0.0.0.0', '') or host.endswith(('.local', '.localhost', '.internal', '.lan')):
+        return True
     try:
-        return app.state.snapshots.publish_snapshot(
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return '.' not in host  # bare hostnames like "mybox" are not reachable from the internet
+    return address.is_private or address.is_loopback or address.is_link_local or address.is_unspecified
+
+
+def public_base_url(request: Request) -> Tuple[str, bool]:
+    """Base URL for share links and whether it is reachable from the internet.
+
+    SENSAI_PUBLIC_URL wins, so a server behind a tunnel or reverse proxy can publish
+    web links even when the author browses it as localhost.
+    """
+    configured = (os.getenv('SENSAI_PUBLIC_URL') or '').strip().rstrip('/')
+    if configured:
+        parsed = urlparse(configured)
+        if parsed.scheme in ('http', 'https') and parsed.hostname:
+            return configured, not _is_private_host(parsed.hostname)
+    base = str(request.base_url).rstrip('/')
+    return base, not _is_private_host(urlparse(base).hostname or '')
+
+
+@app.post('/api/snapshots')
+def create_snapshot(req: PublishSnapshotRequest, request: Request):
+    try:
+        snap = app.state.snapshots.publish_snapshot(
             title=output_value(app, input_value(app, req.title)),
             snapshot_type=req.type,
             data=output_value(app, input_value(app, req.data)),
             custom_id=req.custom_id,
         )
+        publish_error = None
+        if remote_config() is not None:
+            try:
+                remote_url = publish_remote(app.state.snapshots, snap['snapshot_id'])
+                return {**snap, 'url': remote_url, 'is_public': True, 'remote': True}
+            except RemotePublishError as err:
+                # Offline or refused: keep the local snapshot and say why the link is not public.
+                publish_error = str(err)
+        base, is_public = public_base_url(request)
+        result = {**snap, 'url': f"{base}/p/{quote(snap['snapshot_id'], safe='')}", 'is_public': is_public}
+        if publish_error:
+            result['publish_error'] = publish_error
+        return result
     except ExportError as err:
         raise HTTPException(status_code=422, detail=str(err))
 
@@ -1549,23 +1602,30 @@ def create_snapshot(req: PublishSnapshotRequest):
 def view_public_snapshot(snapshot_id: str):
     try:
         require_safe_export(app, app.state.snapshots.get_snapshot(snapshot_id))
-        html_page = app.state.snapshots.export_as_html(snapshot_id)
+        html_page = app.state.snapshots.export_as_html(snapshot_id, f'/p/{quote(snapshot_id, safe="")}')
         return HTMLResponse(html_page)
     except ExportError as err:
         raise HTTPException(status_code=404, detail=str(err))
 
 
 @app.get('/p/{snapshot_id}/export')
-def export_public_snapshot(snapshot_id: str, format: str = Query('json')):
+def export_public_snapshot(snapshot_id: str, format: str = Query('json'), download: bool = Query(False)):
     try:
         require_safe_export(app, app.state.snapshots.get_snapshot(snapshot_id))
+        safe = re.sub(r'[^A-Za-z0-9_-]', '_', snapshot_id) or 'export'
+        attach = (lambda ext: {'Content-Disposition': f'attachment; filename="{safe}.{ext}"'}) if download else (lambda ext: None)
         if format == 'md':
             return PlainTextResponse(
                 app.state.snapshots.export_as_markdown(snapshot_id),
                 media_type='text/markdown',
+                headers=attach('md'),
             )
         elif format == 'html':
-            return HTMLResponse(app.state.snapshots.export_as_html(snapshot_id))
+            return HTMLResponse(
+                # A saved copy has no server to link back to, so it omits the download links.
+                app.state.snapshots.export_as_html(snapshot_id, None if download else f'/p/{quote(snapshot_id, safe="")}'),
+                headers=attach('html'),
+            )
         elif format == 'pdf':
             pdf_bytes = app.state.snapshots.export_as_pdf(snapshot_id)
             return Response(

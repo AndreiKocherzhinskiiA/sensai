@@ -1,0 +1,13 @@
+{
+  "name": "sensai-publish",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tiny Vercel service that stores published Sensai snapshots in Vercel Blob and serves them as public pages.",
+  "dependencies": {
+    "@vercel/blob": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

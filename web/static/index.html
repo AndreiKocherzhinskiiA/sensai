@@ -549,10 +549,18 @@
       padding: .7rem .9rem; border-radius: 12px; border: 1px solid var(--acc-edge); background: var(--panel);
       font-size: .85rem; color: var(--ink-2); animation: enter .45s var(--out) both;
     }
-    .share-box.show { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .9rem; }
-    .share-box .x { margin-left: auto; width: 30px; height: 30px; border-radius: 8px; border: 0; background: transparent; color: var(--ink-3); display: grid; place-items: center; cursor: pointer; transition: color .15s, background-color .15s; }
+    .share-box.show { display: grid; gap: .65rem; }
+    .share-box .sb-head { display: flex; align-items: flex-start; gap: .75rem; }
+    .share-box .sb-head > span { flex: 1; min-width: 0; line-height: 1.45; }
+    .share-box .share-warn { color: var(--bad); font-size: .82rem; }
+    .share-box .x { flex: none; margin: -.2rem -.3rem 0 0; width: 28px; height: 28px; border-radius: 8px; border: 0; background: transparent; color: var(--ink-3); display: grid; place-items: center; cursor: pointer; transition: color .15s, background-color .15s; }
     .share-box .x svg { width: 14px; height: 14px; }
-    .share-box a { color: var(--acc-text); font-family: var(--mono); font-size: .8rem; overflow-wrap: anywhere; text-underline-offset: 3px; }
+    .share-box .sb-url { display: flex; align-items: stretch; gap: .5rem; }
+    .share-box .sb-link { flex: 1; min-width: 0; display: block; padding: .5rem .75rem; border-radius: 9px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--acc-text); font: 500 .8rem/1.4 var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none; }
+    .share-box .sb-url .btn { flex: none; }
+    .share-box .sb-dl { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+    .share-box .sb-dl > span { color: var(--ink-3); font-size: .78rem; margin-right: .2rem; }
+    .share-box .sb-dl a { padding: .25rem .65rem; border-radius: 999px; border: 1px solid var(--line-strong); color: var(--ink-2); font: 500 .78rem var(--sans); text-decoration: none; transition: color .15s, border-color .15s, background-color .15s; }
 
     /* ---------- Composer ---------- */
     .composer { position: relative; z-index: 1; padding-bottom: 1rem; }
@@ -635,7 +643,8 @@
       .stop:hover { background: var(--bad-wash); color: var(--bad); border-color: var(--bad); }
       .msg:hover .msg-copy { opacity: 1; }
       .msg-copy:hover { color: var(--ink); background: var(--hover-bg); }
-      .share-box a:hover { text-decoration-thickness: 2px; }
+      .share-box .sb-link:hover { border-color: var(--acc-edge); }
+      .share-box .sb-dl a:hover { color: var(--acc-text); border-color: var(--acc-edge); background: var(--acc-wash); }
       .share-box .x:hover { color: var(--ink); background: var(--hover-bg); }
       .error .fix:hover { background: var(--bad); color: var(--bg); }
     }
@@ -2664,7 +2673,7 @@
           throw new Error('HTTP ' + res.status);
         const data = await res.json();
         const path = '/p/' + encodeURIComponent(data.snapshot_id);
-        const url = location.origin + path;
+        const url = data.url || (location.origin + path);
         const link = (href, text) => Object.assign(el('a', null, text), {href, target: '_blank', rel: 'noopener'});
         const copy = el('button', 'btn', 'Copy link');
         copy.type = 'button';
@@ -2681,7 +2690,19 @@
         x.setAttribute('aria-label', 'Dismiss share link');
         x.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
         x.addEventListener('click', () => shareBox.classList.remove('show'));
-        shareBox.replaceChildren(el('span', null, 'Public link — anyone with it can read this chat:'), link(path, url), link(path + '/export?format=md', 'Export .md'), link(path + '/export?format=pdf', 'Export .pdf'), copy, x);
+        const note = data.publish_error
+          ? el('span', 'share-warn', data.publish_error + ' Showing a local link that only works on this computer. Downloads below work anywhere.')
+          : data.is_public === false
+          ? el('span', 'share-warn', 'This link only works on this computer. Open Sensai through a public address or set SENSAI_PUBLIC_URL (see docs/PUBLISHING.md). Downloads below work anywhere.')
+          : el('span', null, 'Public link — anyone with it can read this chat:');
+        const root = data.remote ? url : location.origin + path;
+        const head = el('div', 'sb-head'); head.append(note, x);
+        const urlRow = el('div', 'sb-url');
+        const main = link(root, url); main.className = 'sb-link'; main.title = url;
+        urlRow.append(main, copy);
+        const dl = el('div', 'sb-dl');
+        dl.append(el('span', null, 'Download'), link(root + '/export?format=pdf', 'PDF'), link(root + '/export?format=md&download=1', 'Markdown'), link(root + '/export?format=html&download=1', 'HTML'));
+        shareBox.replaceChildren(head, urlRow, dl);
         shareBox.classList.remove('show');
         void shareBox.offsetWidth;
         shareBox.classList.add('show');
