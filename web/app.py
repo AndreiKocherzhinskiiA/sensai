@@ -54,7 +54,10 @@ from file_access.writer import CreatePlan, WorkspaceWriter
 from file_access.policy import FilePolicy
 from forms.service import FormValidationError, validate_form_answers, validate_form_schema
 from optimization.optimizer import OptimizationError, PromptOptimizer
-from persona.registry import PersonaError, load_personas, persona_prompt
+from persona.registry import (
+    BUILTIN_IDS, PersonaError, create_persona, delete_persona, load_personas,
+    persona_prompt, update_persona,
+)
 from prompts.versioning import PromptError, PromptVersionStore
 from retrieval.chunking import chunk_text
 from retrieval.embeddings import embed
@@ -255,9 +258,46 @@ def dashboard():
 @app.get('/api/personas')
 def list_personas():
     try:
-        return list(load_personas().values())
+        return [{**p, 'builtin': p['id'] in BUILTIN_IDS} for p in load_personas().values()]
     except PersonaError as error:
         raise HTTPException(status_code=500, detail=str(error))
+
+
+class PersonaRequest(BaseModel):
+    id: Optional[str] = None
+    name: str = ''
+    tone: str = ''
+    role: str = ''
+    scope: str = ''
+
+
+def _persona_write(action, *args):
+    try:
+        persona = action(*args)
+    except KeyError:
+        raise HTTPException(status_code=404, detail='Persona not found.')
+    except PersonaError as error:
+        raise HTTPException(status_code=422, detail=str(error))
+    return persona
+
+
+@app.post('/api/personas')
+def add_persona(req: PersonaRequest):
+    persona = _persona_write(create_persona, req.dict())
+    return {**persona, 'builtin': False}
+
+
+@app.put('/api/personas/{persona_id}')
+def edit_persona(persona_id: str, req: PersonaRequest):
+    persona = _persona_write(update_persona, persona_id, req.dict())
+    return {**persona, 'builtin': False}
+
+
+@app.delete('/api/personas/{persona_id}')
+def remove_persona(persona_id: str):
+    _persona_write(delete_persona, persona_id)
+    # Chats that used it fall back to the default persona automatically.
+    return {'deleted': persona_id}
 
 
 
