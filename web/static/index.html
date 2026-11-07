@@ -577,6 +577,14 @@
     }
     textarea:focus-visible { outline: none; }
     form.nudge { animation: nudge-x .4s var(--out); }
+    .clarification-form { display: block; margin: 12px 0; padding: 14px; }
+    .clarification-form fieldset { min-width: 0; margin: 12px 0; padding: 0; border: 0; }
+    .clarification-form label { display: block; margin: 10px 0; }
+    .clarification-form input, .clarification-form select {
+      display: block; width: 100%; margin-top: 6px; padding: 8px;
+      border: 1px solid var(--line-strong); border-radius: 8px;
+      background: var(--bg); color: var(--ink); font: inherit;
+    }
     @keyframes nudge-x { 20%, 60% { transform: translateX(-4px); } 40%, 80% { transform: translateX(4px); } }
     textarea::placeholder { color: var(--ink-3); opacity: 1; }
     .send, .stop {
@@ -2011,6 +2019,8 @@
     }
 
     function applySessionData(data) {
+      sessionTotalTokens = data ? (data.total_tokens || 0) : 0;
+      setUsage(0, sessionTotalTokens);
       savedPersonaId = data ? data.persona_id : null;
       personaSelect.value = savedPersonaId || '';
       personaDD.render();
@@ -3013,6 +3023,65 @@
         }
         approve.addEventListener('click', () => decide(true));
         reject.addEventListener('click', () => decide(false));
+      });
+
+      currentSource.addEventListener('form_request', (e) => {
+        const schema = JSON.parse(e.data).payload.schema;
+        const card = el('form', 'clarification-form');
+        card.appendChild(el('h3', null, schema.title));
+        const fields = el('fieldset');
+        fields.appendChild(el('legend', null, 'Provide details to continue'));
+        const controls = [];
+        for (const field of schema.fields) {
+          const label = el('label');
+          label.appendChild(el('span', null, field.label || field.name));
+          const control = el(field.type === 'select' || field.type === 'boolean' ? 'select' : 'input');
+          control.name = field.name;
+          control.required = field.required !== false;
+          if (field.type === 'select' || field.type === 'boolean') {
+            const options = field.type === 'boolean' ? ['true', 'false'] : field.options;
+            for (const value of options) {
+              const option = el('option', null, String(value));
+              option.value = String(value);
+              control.appendChild(option);
+            }
+          } else {
+            control.type = field.type === 'number' ? 'number' : 'text';
+            if (field.type === 'number') control.step = 'any';
+          }
+          if (field.default != null) control.value = String(field.default);
+          label.appendChild(control);
+          fields.appendChild(label);
+          controls.push(control);
+        }
+        const submit = el('button', 'btn', 'Continue');
+        submit.type = 'submit';
+        fields.appendChild(submit);
+        const feedback = el('p');
+        feedback.setAttribute('role', 'status');
+        card.append(fields, feedback);
+        logInner.insertBefore(card, replyNode);
+        setStatus('Waiting for clarification', 'busy');
+        scrollDown();
+        card.addEventListener('submit', async event => {
+          event.preventDefault();
+          if (currentRunId !== runId || fields.disabled) return;
+          const answers = Object.fromEntries(controls.map(control => [control.name, control.value]));
+          fields.disabled = true;
+          try {
+            const response = await fetch('/api/runs/' + runId + '/form_response', {
+              method: 'POST', headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({answers}),
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : 'Could not submit answers');
+            feedback.textContent = 'Answers received.';
+            if (currentRunId === runId) setStatus('Continuing reply', 'busy');
+          } catch (error) {
+            feedback.textContent = error.message;
+            fields.disabled = false;
+          }
+        });
       });
 
       currentSource.addEventListener('text_delta', (e) => {

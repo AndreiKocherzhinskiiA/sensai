@@ -5,11 +5,13 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 import requests
 import uvicorn
 
 from artifacts.service import ArtifactStore
+from core.config import settings
 from events.store import EventStore
 from export.service import SnapshotStore
 from prompts.versioning import PromptVersionStore
@@ -49,6 +51,13 @@ class WebStubTests(unittest.TestCase):
         cls.thread.join()
 
     def setUp(self):
+        for mock in (
+            patch.object(app.state, 'mode', 'stub'),
+            patch.object(settings, 'check_ollama_alive', return_value=False),
+            patch('core.chat.retrieve_advanced', return_value=[]),
+        ):
+            mock.start()
+            self.addCleanup(mock.stop)
         app.state.delay = 0
         app.state.runs.clear()
         self.tmp_session_file = tempfile.NamedTemporaryFile(suffix='.db', delete=False)

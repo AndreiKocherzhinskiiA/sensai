@@ -340,7 +340,7 @@ def format_session_response(session: Dict[str, Any], store: SessionStore) -> Dic
         'turns_count': len(messages),
         'history': history,
         'messages': messages,
-        'total_tokens': 0,
+        'total_tokens': calculate_history_tokens(messages),
         'created_at': session['created_at'],
         'updated_at': session['updated_at'],
         'status': session.get('status', 'active'),
@@ -1338,15 +1338,35 @@ async def generate_events(run: Dict[str, Any]):
                 return
 
         else:
-            prefix = f"[{persona['name']}] " if persona else ''
-            reply_text = f"{prefix}Stub reply to: {run['message']}"
-            if run.get('schema'):
-                if 'goal' in run['schema'].get('properties', {}):
-                    reply_text = json.dumps({'goal': run['message'], 'steps': ['Step 1', 'Step 2']})
-                elif 'tasks' in run['schema'].get('properties', {}):
-                    reply_text = json.dumps({'tasks': [{'title': run['message'], 'priority': 'medium'}]})
-                else:
-                    reply_text = json.dumps({'result': run['message']})
+            if run['message'].strip().lower().startswith('clarify:'):
+                form_schema = {
+                    'form_id': 'clarify_form',
+                    'title': 'Clarification Request',
+                    'fields': [
+                        {'name': 'language', 'type': 'text'},
+                        {'name': 'include_tests', 'type': 'boolean'},
+                        {'name': 'max_steps', 'type': 'number'},
+                    ],
+                }
+                run['form_schema'] = form_schema
+                run['form_waiting'] = True
+                yield to_sse(stream.emit('form_request', form_id='clarify_form', schema=form_schema))
+                while run.get('form_waiting') and not run.get('cancelled'):
+                    await asyncio.sleep(0.02)
+                if run.get('cancelled'):
+                    yield to_sse(stream.done('cancelled'))
+                    return
+                reply_text = f"Parameters received: {json.dumps(run.get('form_response', {}))}"
+            else:
+                prefix = f"[{persona['name']}] " if persona else ''
+                reply_text = f"{prefix}Stub reply to: {run['message']}"
+                if run.get('schema'):
+                    if 'goal' in run['schema'].get('properties', {}):
+                        reply_text = json.dumps({'goal': run['message'], 'steps': ['Step 1', 'Step 2']})
+                    elif 'tasks' in run['schema'].get('properties', {}):
+                        reply_text = json.dumps({'tasks': [{'title': run['message'], 'priority': 'medium'}]})
+                    else:
+                        reply_text = json.dumps({'result': run['message']})
 
             if policy is not None:
                 reply_text = policy.output(reply_text)
@@ -1469,6 +1489,11 @@ def submit_form_response(run_id: str, req: FormResponseRequest):
     if not run:
         raise HTTPException(status_code=404, detail='Run not found.')
     answers = input_value(app, req.answers)
+    if run.get('form_schema'):
+        try:
+            answers = validate_form_answers(run['form_schema'], answers)
+        except FormValidationError as err:
+            raise HTTPException(status_code=422, detail=str(err))
     run['form_response'] = answers
     run['form_waiting'] = False
     return {'run_id': run_id, 'status': 'resumed', 'received': answers}

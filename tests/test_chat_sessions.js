@@ -11,6 +11,23 @@ const sessionFunctions = html.slice(
   html.indexOf('    loadSession(sessionId);'),
 );
 
+test('loading a saved chat restores its token estimate and empty chats reset it', () => {
+  const usage = [];
+  const context = vm.createContext({
+    personaSelect: {}, personaDD: {render() {}}, addLine() {},
+    setUsage: (last, total) => usage.push([last, total]),
+  });
+  vm.runInContext(`
+    let savedPersonaId, sessionTotalTokens = 0, currentMessages = [];
+    ${html.slice(html.indexOf('    function applySessionData('), html.indexOf('    function resetView()'))}
+    applySessionData({total_tokens: 42, messages: [{role: 'user', content: 'hello'}]});
+  `, context);
+  assert.deepEqual(usage, [[0, 42]]);
+  assert.equal(vm.runInContext('sessionTotalTokens', context), 42);
+  vm.runInContext('applySessionData(null)', context);
+  assert.deepEqual(usage, [[0, 42], [0, 0]]);
+});
+
 function chat() {
   const requests = [];
   const displayed = [];
@@ -18,7 +35,7 @@ function chat() {
     localStorage: {setItem() {}},
     logInner: {replaceChildren() { displayed.length = 0; }},
     shareBox: {classList: {remove() {}}},
-    setUsage() {}, showEmpty() {}, refreshSessions() {},
+    setUsage() {}, showEmpty() {}, refreshSessions() {}, setTemporaryUI() {},
     applySessionData(data) { if (data) displayed.push(data.id); },
     fetch(url) {
       return new Promise(resolve => requests.push({
@@ -28,7 +45,7 @@ function chat() {
   });
   vm.runInContext(`
     let sessionId = 'initial', currentMessages = [], sessionTotalTokens = 0;
-    let pendingFile = null, sessionLoadVersion = 0;
+    let pendingFile = null, sessionLoadVersion = 0, temporary = false, lastRealSessionId = 'initial';
     ${sessionFunctions}
   `, context);
   return {requests, displayed, run: code => vm.runInContext(code, context)};
