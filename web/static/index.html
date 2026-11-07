@@ -240,9 +240,20 @@
     .acc-msg.err { color: var(--bad); }
     .acc-key { padding: .7rem 0; border-top: 1px solid var(--line); }
     .acc-key:first-child { border-top: 0; }
-    .acc-key label { display: flex; justify-content: space-between; font-size: .85rem; font-weight: 600; }
-    .acc-key label small { font-weight: 500; color: var(--ink-3); font-family: var(--mono); }
+    .acc-key label { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .25rem .75rem; font-size: .85rem; font-weight: 600; }
+    .acc-key label small { font-weight: 500; color: var(--ink-3); }
     .acc-key .acc-actions { margin-top: .5rem; }
+    .key-saved { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+    .key-info { min-width: 0; }
+    .key-info b, .key-info small, .key-value { display: block; overflow-wrap: anywhere; }
+    .key-info b { font-size: .88rem; }
+    .key-info small { margin-top: .25rem; color: var(--ink-3); font-size: .75rem; }
+    .key-value { margin-top: .5rem; font: .8rem var(--mono); color: var(--ink-2); }
+    .key-actions { display: flex; flex-shrink: 0; gap: .25rem; }
+    .key-icon { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 8px; }
+    .key-icon svg { width: 18px; height: 18px; }
+    .key-editor { display: block; margin: .75rem 0; padding: 1rem; }
+    .key-editor h4 { margin: 0 0 1rem; font-size: .9rem; }
     .acc-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .8rem 0; border-top: 1px solid var(--line); }
     .acc-row:first-of-type { border-top: 0; }
     .acc-row b { display: block; font-size: .88rem; }
@@ -1029,7 +1040,7 @@
 
       <section data-panel="keys" hidden>
         <h3>API keys</h3>
-        <p class="acc-hint acc-warn">Not used yet: Sensai talks to local Ollama only. Keys stay in this browser's local storage and are never sent to the server.</p>
+        <p class="acc-hint acc-warn">Provider connections are not available yet. Saving a key stores it in this browser only; chats still use local Ollama. Add multiple keys per provider and give each a name.</p>
         <div id="acc-keys"></div>
       </section>
 
@@ -3549,29 +3560,118 @@
       }
       applyDefaults();
 
-      // API keys (UI only, browser storage)
+      // Named API keys (browser storage only).
       const PROVIDERS = [['openai', 'OpenAI'], ['anthropic', 'Anthropic'], ['google', 'Google'], ['custom', 'Custom endpoint']];
-      const readKeys = () => { try { return JSON.parse(lget('sensai_keys', '{}')) || {}; } catch (e) { return {}; } };
-      const writeKeys = k => lset('sensai_keys', JSON.stringify(k));
-      const mask = v => v.length <= 8 ? '••••' : v.slice(0, 3) + '…' + v.slice(-4);
-      function paintKeys() {
+      const readKeys = () => {
+        try {
+          const data = JSON.parse(lget('sensai_keys', '{}'));
+          if (Array.isArray(data)) return data.filter(k => k && typeof k.id === 'string' && typeof k.name === 'string' && typeof k.key === 'string' && PROVIDERS.some(([id]) => id === k.provider));
+          // Preserve keys saved by the old, one-key-per-provider interface.
+          return PROVIDERS.filter(([id]) => typeof data?.[id] === 'string' && data[id]).map(([id, name]) => ({id: 'legacy-' + id, name: name + ' key', provider: id, key: data[id]}));
+        } catch (e) { return []; }
+      };
+      const writeKeys = keys => localStorage.setItem('sensai_keys', JSON.stringify(keys));
+      const KEY_ICONS = {
+        eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
+        hide: '<path d="m3 3 18 18M10.6 5.1 12 5c6.5 0 10 7 10 7a20 20 0 0 1-3 3.8M6.2 6.2A22 22 0 0 0 2 12s3.5 7 10 7a12 12 0 0 0 5.8-1.6M10 10a3 3 0 0 0 4 4"/>',
+        edit: '<path d="m16 3 5 5M4 20l5-1L21 7a2.1 2.1 0 0 0-5-5L4 14Z"/>',
+        trash: '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',
+        check: '<path d="m5 12 4 4L19 6"/>',
+        close: '<path d="m6 6 12 12M18 6 6 18"/>',
+      };
+      function keyIcon(button, icon, label) {
+        button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + KEY_ICONS[icon] + '</svg>';
+        button.title = label;
+        button.setAttribute('aria-label', label);
+      }
+      function keyButton(icon, label, action, danger = false) {
+        const button = el('button', 'acc-ghost key-icon' + (danger ? ' acc-danger' : ''));
+        button.type = 'button';
+        keyIcon(button, icon, label);
+        button.addEventListener('click', action);
+        return button;
+      }
+      function paintKeys(message = '', error = false) {
         const box = $('acc-keys'), keys = readKeys();
         box.replaceChildren();
-        PROVIDERS.forEach(([id, name]) => {
-          const row = el('div', 'acc-key');
-          const lab = el('label'); lab.htmlFor = 'key-' + id;
-          lab.append(el('span', null, name), el('small', null, keys[id] ? mask(keys[id]) : 'not set'));
-          const inp = el('input'); inp.id = 'key-' + id; inp.type = 'password'; inp.autocomplete = 'off'; inp.spellcheck = false;
-          inp.placeholder = keys[id] ? 'Replace key…' : 'Paste key…';
-          const acts = el('div', 'acc-actions');
-          const sv = el('button', 'acc-primary', 'Save'); sv.type = 'button';
-          const sh = el('button', 'acc-ghost', 'Show'); sh.type = 'button';
-          const rm = el('button', 'acc-ghost acc-danger', 'Remove'); rm.type = 'button'; rm.disabled = !keys[id];
-          sh.addEventListener('click', () => { const show = inp.type === 'password'; inp.type = show ? 'text' : 'password'; sh.textContent = show ? 'Hide' : 'Show'; });
-          sv.addEventListener('click', () => { const v = inp.value.trim(); if (!v) return; const k = readKeys(); k[id] = v; writeKeys(k); paintKeys(); });
-          rm.addEventListener('click', () => { const k = readKeys(); delete k[id]; writeKeys(k); paintKeys(); });
-          acts.append(sv, sh, rm);
-          row.append(lab, inp, acts); box.appendChild(row);
+        const feedback = el('p', 'acc-msg' + (error ? ' err' : ''), message);
+        feedback.setAttribute('role', 'status');
+        const add = el('button', 'acc-primary', '+ Add API key');
+        add.type = 'button';
+        const list = el('div');
+        box.append(add, feedback, list);
+        const notify = (text, failed = false) => {
+          feedback.textContent = text;
+          feedback.classList.toggle('err', failed);
+        };
+        function editor(existing) {
+          if (box.querySelector('.key-editor')) return;
+          add.disabled = true;
+          const panel = el('form', 'key-editor');
+          panel.appendChild(el('h4', null, existing ? 'Edit API key' : 'Add API key'));
+          function field(title, control) {
+            const label = el('label', 'acc-field', title);
+            label.appendChild(control);
+            panel.appendChild(label);
+            return control;
+          }
+          const name = field('Name', el('input'));
+          name.required = true; name.maxLength = 60;
+          name.placeholder = 'e.g. Personal or Work'; name.value = existing?.name || '';
+          const provider = field('Provider', el('select'));
+          PROVIDERS.forEach(([id, label]) => {
+            const option = el('option', null, label); option.value = id; provider.appendChild(option);
+          });
+          provider.value = existing?.provider || 'openai';
+          const secret = field('API key', el('input'));
+          secret.type = 'password'; secret.required = true; secret.autocomplete = 'off'; secret.spellcheck = false;
+          secret.placeholder = 'Paste API key'; secret.value = existing?.key || '';
+          const actions = el('div', 'acc-actions');
+          const save = keyButton('check', 'Save API key', () => {});
+          save.type = 'submit';
+          const cancel = keyButton('close', 'Cancel editing', () => {
+            panel.remove(); add.disabled = false; add.focus(); notify('');
+          });
+          const reveal = keyButton('eye', 'Show API key', () => {
+            const show = secret.type === 'password'; secret.type = show ? 'text' : 'password';
+            keyIcon(reveal, show ? 'hide' : 'eye', show ? 'Hide API key' : 'Show API key');
+            reveal.setAttribute('aria-pressed', String(show));
+          });
+          actions.append(save, cancel, reveal); panel.appendChild(actions);
+          panel.addEventListener('submit', event => {
+            event.preventDefault();
+            if (!name.value.trim() || !secret.value.trim()) { notify('Enter a name and API key.', true); return; }
+            const entry = {id: existing?.id || crypto.randomUUID(), name: name.value.trim(), provider: provider.value, key: secret.value.trim()};
+            const current = readKeys();
+            const updated = existing ? current.map(k => k.id === existing.id ? entry : k) : [...current, entry];
+            try { writeKeys(updated); paintKeys('Key saved in this browser.'); }
+            catch (e) { notify('Could not save. Browser storage is unavailable.', true); }
+          });
+          box.insertBefore(panel, list); name.focus();
+        }
+        add.addEventListener('click', () => editor(null));
+        if (!keys.length) list.appendChild(el('p', 'acc-hint', 'No API keys saved. Add a key and give it a name.'));
+        keys.forEach(entry => {
+          const row = el('div', 'acc-key key-saved');
+          const info = el('div', 'key-info');
+          const providerName = PROVIDERS.find(([id]) => id === entry.provider)[1];
+          info.append(el('b', null, entry.name), el('small', null, providerName + ' ? Saved in this browser'));
+          const value = el('code', 'key-value', '????????????');
+          const actions = el('div', 'key-actions');
+          let visible = false;
+          const reveal = keyButton('eye', 'Show ' + entry.name, () => {
+            visible = !visible; value.textContent = visible ? entry.key : '????????????';
+            keyIcon(reveal, visible ? 'hide' : 'eye', (visible ? 'Hide ' : 'Show ') + entry.name);
+            reveal.setAttribute('aria-pressed', String(visible));
+          });
+          reveal.setAttribute('aria-pressed', 'false');
+          const edit = keyButton('edit', 'Edit ' + entry.name, () => editor(entry));
+          const remove = keyButton('trash', 'Delete ' + entry.name, () => {
+            try { writeKeys(readKeys().filter(k => k.id !== entry.id)); row.remove(); notify('Key removed from this browser.'); }
+            catch (e) { notify('Could not remove. Browser storage is unavailable.', true); }
+          }, true);
+          actions.append(reveal, edit, remove);
+          info.appendChild(value); row.append(info, actions); list.appendChild(row);
         });
       }
 
