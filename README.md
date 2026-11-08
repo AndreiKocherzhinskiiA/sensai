@@ -109,6 +109,10 @@ The new workflow's live acceptance walkthrough remains to be run in WSL.
 - `docs/SCOPING.md`: full 28-feature scope, architecture, ownership and six-week plan for four members
 - `docs/USER_STORIES.md`: stories and observable acceptance criteria
 - `docs/VERIFY.md`: automated results and manual demo checklist
+- `docs/RAG.md`: ChromaDB architecture, configuration, APIs and RAG defence
+- `docs/RAG_DEFENCE.md`: step-by-step terminal and browser RAG test
+- `docs/SEMANTIC_CACHE_DEFENCE.md`: semantic-cache safety, TTL, and bypass walkthrough
+- `scripts/rag_defence.py`: live Ollama/ChromaDB end-to-end demonstration
 - `START.md`: installation from scratch, first launch, repeat launch and troubleshooting
 
 `main()` loads configuration and the prompt. `run_chat()` owns history and terminal IO.
@@ -260,6 +264,15 @@ All settings are centralized in `core/config.py` and can be overridden via envir
 | `SENSAI_ARTIFACTS_DB` | Path to SQLite artifact store | `sensai_artifacts.db` |
 | `SENSAI_SNAPSHOTS_DB` | Path to SQLite public snapshot store | `sensai_snapshots.db` |
 | `SENSAI_WORKSPACE` | Root directory for workspace file read and write | `./workspace` |
+| `SENSAI_SEMANTIC_CACHE_ENABLED` | Enable caching for standalone, unguarded turns only | `true` |
+| `SENSAI_SEMANTIC_CACHE_DB` | SQLite cache database path | `retrieval/semantic_cache.sqlite3` |
+| `SENSAI_SEMANTIC_CACHE_THRESHOLD` | Minimum cosine similarity for a cache hit (0–1) | `0.92` |
+| `SENSAI_SEMANTIC_CACHE_EMBEDDING_MODEL` | Ollama embedding model used by the cache | `nomic-embed-text` |
+| `SENSAI_SEMANTIC_CACHE_MAX_AGE_SECONDS` | Optional TTL; unset keeps entries indefinitely | unset |
+
+The cache is intentionally bypassed for RAG/retrieval, file attachments, web evidence,
+MCP observations, conversation history, structured output, and guarded turns. In the
+CLI, `/cache stats` reports active entries and `/cache clear` removes them.
 
 ### Running the Web Service
 

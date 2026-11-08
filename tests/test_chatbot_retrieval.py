@@ -2,6 +2,7 @@
 import contextlib
 import io
 import json
+import os
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,6 +19,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         data = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         self.server.payloads.append(data)
+        if self.path == '/api/generate':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(b'{"response":"8"}')
+            return
         status, chunks = self.server.replies.pop(0)
         self.send_response(status)
         self.send_header('Content-Type', 'application/x-ndjson')
@@ -60,6 +67,7 @@ class RetrievalIntegrationTests(unittest.TestCase):
     def run_cli(self, inputs, store=None):
         output = io.StringIO()
         with patch('builtins.input', side_effect=inputs), \
+                patch.dict(os.environ, {'SENSAI_SEMANTIC_CACHE_ENABLED': 'false'}), \
                 contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
             chatbot.run_chat('test-model', 'System prompt', self.url, 2, store=store)
         return output.getvalue()
@@ -73,21 +81,27 @@ class RetrievalIntegrationTests(unittest.TestCase):
         ])
 
     @patch('retrieval.rag.embed', side_effect=fake_embed)
-    def test_matching_document_injects_context_before_user_turn(self, mock_embed):
+    @patch('retrieval.semantic_cache.embed', side_effect=fake_embed)
+    def test_matching_document_injects_context_before_user_turn(
+            self, mock_cache_embed, mock_embed):
         self.store.add('cats.md', 1, 1, 'All about cats.', [1.0, 0.0])
         self.reply('Answer about cats')
 
         self.run_cli(['tell me about cats', '/exit'], store=self.store)
 
-        sent_messages = self.server.payloads[0]['messages']
-        # system prompt, then injected context, then the user's actual question
+        sent_messages = next(
+            payload['messages']
+            for payload in self.server.payloads
+            if 'messages' in payload
+        )
+        # system prompt, then the user's question with the shared context block
         self.assertEqual(sent_messages[0]['role'], 'system')
         self.assertEqual(sent_messages[0]['content'], 'System prompt')
-        self.assertEqual(sent_messages[1]['role'], 'system')
+        self.assertEqual(sent_messages[1]['role'], 'user')
+        self.assertIn('<retrieved_context>', sent_messages[1]['content'])
         self.assertIn('cats.md', sent_messages[1]['content'])
         self.assertIn('All about cats.', sent_messages[1]['content'])
-        self.assertEqual(sent_messages[2]['role'], 'user')
-        self.assertEqual(sent_messages[2]['content'], 'tell me about cats')
+        self.assertIn('tell me about cats', sent_messages[1]['content'])
 
     @patch('retrieval.rag.embed', side_effect=RuntimeError('Ollama unreachable'))
     def test_retrieval_failure_does_not_crash_chat(self, mock_embed):
@@ -96,8 +110,27 @@ class RetrievalIntegrationTests(unittest.TestCase):
 
         self.assertIn('Retrieval unavailable', output)
         # chat still completed and sent the user's message normally
-        sent_messages = self.server.payloads[0]['messages']
+        sent_messages = next(
+            payload['messages']
+            for payload in self.server.payloads
+            if 'messages' in payload
+        )
         self.assertEqual(sent_messages[-1]['content'], 'hello there')
+
+    @patch('retrieval.rag.embed', side_effect=fake_embed)
+    @patch('retrieval.semantic_cache.embed', side_effect=fake_embed)
+    def test_unmatched_question_abstains_without_calling_model(
+            self, mock_cache_embed, mock_embed):
+        self.store.add('cats.md', 1, 1, 'All about cats.', [1.0, 0.0])
+
+        output = self.run_cli(['What is the capital of Mars?', '/exit'],
+                              store=self.store)
+
+        self.assertIn(
+            "I couldn't find relevant information in the indexed documents",
+            output,
+        )
+        self.assertNotIn('What is the capital of Mars?', self.server.payloads)
 
 
 if __name__ == '__main__':

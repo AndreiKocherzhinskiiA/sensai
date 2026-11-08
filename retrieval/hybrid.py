@@ -19,7 +19,9 @@ def _normalize(scores: list[float]) -> list[float]:
 
 def hybrid_search(query: str, query_vector: list[float], store: VectorStore,
                    top_k: int = 5, alpha: float = 0.5,
-                   filters: dict | None = None) -> list[dict]:
+                   filters: dict | None = None,
+                   collection_id: str = "default",
+                   threshold: float | None = None) -> list[dict]:
     """Rank chunks by a weighted combination of vector and BM25 scores.
 
     hybrid_score = alpha * vector_score + (1 - alpha) * bm25_score
@@ -30,7 +32,7 @@ def hybrid_search(query: str, query_vector: list[float], store: VectorStore,
     if not (0.0 <= alpha <= 1.0):
         raise ValueError("alpha must be between 0 and 1")
 
-    chunks = store.get_all()
+    chunks = store.get_all_for_collection(collection_id)
 
     if filters:
         chunks = [
@@ -47,6 +49,22 @@ def hybrid_search(query: str, query_vector: list[float], store: VectorStore,
     bm25_scores_normalized = _normalize(bm25_scores)
 
     vector_scores = [cosine_similarity(query_vector, c["vector"]) for c in chunks]
+    if threshold is not None:
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError("threshold must be between 0 and 1")
+        accepted = [
+            (chunk, vector_score)
+            for chunk, vector_score in zip(chunks, vector_scores)
+            if vector_score >= threshold
+        ]
+        chunks = [chunk for chunk, _ in accepted]
+        vector_scores = [vector_score for _, vector_score in accepted]
+        if not chunks:
+            return []
+        contents = [c["content"] for c in chunks]
+        bm25 = BM25(contents)
+        bm25_scores = bm25.score_all(query)
+        bm25_scores_normalized = _normalize(bm25_scores)
     # Cosine similarity for normalized embeddings is typically in [-1, 1];
     # normalize it too so both components are on the same [0, 1] scale.
     vector_scores_normalized = _normalize(vector_scores)
@@ -56,6 +74,7 @@ def hybrid_search(query: str, query_vector: list[float], store: VectorStore,
         hybrid_score = alpha * v_score + (1 - alpha) * b_score
         results.append({
             "id": chunk["id"],
+            "collection_id": collection_id,
             "source_file": chunk["source_file"],
             "start_line": chunk["start_line"],
             "end_line": chunk["end_line"],
