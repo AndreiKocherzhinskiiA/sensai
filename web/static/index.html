@@ -161,6 +161,24 @@
     .icon-btn[aria-expanded="true"] .k2 { transform: translateX(4px); }
     .icon-btn[aria-expanded="true"] svg { transform: none; }
 
+    /* ---------- Profiles Sidebar ---------- */
+    .app-shell { display: flex; flex: 1; min-height: 0; width: 100%; }
+    #profiles-sidebar {
+      width: 260px; background: var(--panel); border-right: 1px solid var(--line);
+      display: flex; flex-direction: column; padding: 1rem; overflow-y: auto; z-index: 5;
+    }
+    #profiles-sidebar h2 { font-size: .95rem; font-weight: 650; margin: 0 0 .8rem; color: var(--ink); }
+    .profile-item {
+      display: flex; flex-direction: column; gap: .2rem; padding: .65rem .75rem; margin-bottom: .4rem;
+      background: var(--raise); border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+      transition: border-color .2s, background-color .2s; text-align: left; width: 100%; color: var(--ink);
+    }
+    .profile-item:hover { border-color: var(--line-strong); background: var(--hover-bg); }
+    .profile-item.active { border-color: var(--acc-edge); background: var(--acc-wash); color: var(--acc-text); }
+    .profile-item .p-title { font-size: .85rem; font-weight: 600; }
+    .profile-item .p-sub { font-size: .75rem; color: var(--ink-3); }
+    @media (max-width: 50rem) { #profiles-sidebar { display: none; } }
+
     /* ---------- Appearance popover ---------- */
     .settings { position: relative; }
     .pop {
@@ -551,6 +569,11 @@
     </div>
   </section>
 
+  <div class="app-shell">
+    <aside id="profiles-sidebar" aria-label="Profiles">
+      <h2>Profiles</h2>
+      <div id="profile-list"></div>
+    </aside>
   <main>
     <div id="log" role="log" aria-live="polite" aria-label="Conversation" tabindex="0">
       <div class="wrap" id="log-inner"></div>
@@ -576,6 +599,7 @@
       </div>
     </div>
   </main>
+    </div>
 
   <script>
     fetch('/api/guardrails').then(response => {
