@@ -128,6 +128,7 @@ def policy_status():
             'output_rules': len(policy.output_terms) if policy else 0,
             'buffered_output': policy is not None}
 
+
 app.state.delay = 0.03  # seconds between fake chunks in stub mode
 app.state.mode = settings.mode  # 'ollama' or 'stub'
 app.state.ollama_host = settings.clean_ollama_host  # Fixed server-side; client must not choose outbound URL
@@ -145,6 +146,7 @@ app.state.retrieval_collection = settings.retrieval_collection
 app.state.retrieval_model = settings.retrieval_model
 app.state.retrieval_top_k = settings.retrieval_top_k
 
+
 def get_workspace_writer(root_path: Optional[Path]) -> Optional[Any]:
     if not root_path:
         return None
@@ -156,7 +158,6 @@ def get_workspace_writer(root_path: Optional[Path]) -> Optional[Any]:
 
 
 app.state.workspace_writer = get_workspace_writer(settings.workspace_dir)
-
 
 from pydantic import BaseModel, Field, StrictBool
 
@@ -358,12 +359,11 @@ def remove_persona(persona_id: str):
     return {'deleted': persona_id}
 
 
-
 def format_session_response(session: Dict[str, Any], store: SessionStore) -> Dict[str, Any]:
     messages = store.get_messages(session['id'])
     messages = [dict(message, content=(input_value(app, message['content'])
-                                      if message['role'] == 'user'
-                                      else output_value(app, message['content'])))
+                                       if message['role'] == 'user'
+                                       else output_value(app, message['content'])))
                 for message in messages]
     history = [{'role': m['role'], 'content': m['content']} for m in messages]
     persona_id = session.get('persona_id') or store.get_session_persona(session['id'])
@@ -496,7 +496,6 @@ def select_session(session_id: str, user_id: str = 'default'):
     return format_session_response(sess, app.state.session_store)
 
 
-
 @app.get('/api/profile')
 def get_profile(user_id: str = 'default'):
     return output_value(app, app.state.session_store.get_profile(user_id))
@@ -512,14 +511,13 @@ def save_profile(req: ProfileRequest):
     )
 
 
-
 @app.post('/api/retrieval/upload')
 async def upload_retrieval_document(
-    file: UploadFile = File(...),
-    collection_id: str = 'default',
-    embedding_model: Optional[str] = None,
-    chunk_size: Optional[int] = None,
-    chunk_overlap: Optional[int] = None,
+        file: UploadFile = File(...),
+        collection_id: str = 'default',
+        embedding_model: Optional[str] = None,
+        chunk_size: Optional[int] = None,
+        chunk_overlap: Optional[int] = None,
 ):
     """Upload and index a UTF-8 TXT or Markdown document for RAG."""
     max_bytes = 5 * 1024 * 1024
@@ -676,10 +674,10 @@ def search_retrieval(req: RetrievalSearchRequest):
 
 
 def _configure_ingestion_collection(
-    collection_id: str,
-    embedding_model: Optional[str],
-    chunk_size: Optional[int],
-    chunk_overlap: Optional[int],
+        collection_id: str,
+        embedding_model: Optional[str],
+        chunk_size: Optional[int],
+        chunk_overlap: Optional[int],
 ) -> dict:
     updates = {}
     if embedding_model is not None:
@@ -691,6 +689,8 @@ def _configure_ingestion_collection(
     if updates:
         return app.state.vector_store.update_collection(collection_id, **updates)
     return app.state.vector_store.get_collection(collection_id)
+
+
 @app.delete('/api/retrieval/sources')
 def delete_source(source_file: str = Query(..., min_length=1, max_length=512)):
     removed = app.state.vector_store.delete_source(source_file)
@@ -776,7 +776,6 @@ def ingest_documents(req: IngestRequest):
         raise HTTPException(status_code=500, detail='Ingestion failed.')
 
 
-
 @app.get('/api/prompts')
 def list_prompts(name: str = 'system'):
     return app.state.prompts.list_versions(name)
@@ -802,7 +801,6 @@ def create_prompt(request: CreatePromptRequest):
         )
     except PromptError as error:
         raise HTTPException(status_code=422, detail=str(error))
-
 
 
 @app.post('/api/prompts/optimize')
@@ -924,10 +922,10 @@ def optimize_prompt(req: OptimizePromptRequest):
                 hallucination = evaluation['hallucination_detected']
 
                 score = (
-                    0.3 * relevance
-                    + 0.2 * coherence
-                    + 0.5 * faithfulness
-                    - 0.3 * int(hallucination)
+                        0.3 * relevance
+                        + 0.2 * coherence
+                        + 0.5 * faithfulness
+                        - 0.3 * int(hallucination)
                 )
 
                 scores.append(max(0.0, min(1.0, score)))
@@ -939,8 +937,8 @@ def optimize_prompt(req: OptimizePromptRequest):
             host=app.state.ollama_host,
             max_iterations=req.max_iterations,
             db_path=(
-                Path(settings.prompts_db).parent
-                / 'opt_history.sqlite3'
+                    Path(settings.prompts_db).parent
+                    / 'opt_history.sqlite3'
             ),
         )
 
@@ -1036,13 +1034,34 @@ def get_run_history(run_id: str):
     return output_value(app, events)
 
 
+def run_feature_pipeline(user_text: str, pending_messages: List[Dict[str, str]]) -> Tuple[str, List[Dict[str, str]]]:
+    """
+    Custom feature chain/pipeline integrating preprocessing, tagging, or query transformation.
+    This intercepts the processed turn right before it enters Guardrails or Model Generation.
+    """
+    # Step A: Execute custom logic (query rewrites, API lookups, tagging, classification)
+    cleaned_text = user_text.strip()
+
+    # Example: You can implement dynamic routing or rewrite logic here
+    # if "summarize" in cleaned_text.lower():
+    #     cleaned_text = f"Please provide a concise summary: {cleaned_text}"
+
+    # Step B: Ensure the final transformed text updates the context chain correctly
+    if pending_messages and pending_messages[-1].get("role") == "user":
+        last_msg = pending_messages[-1].copy()
+        last_msg["content"] = cleaned_text
+        pending_messages = pending_messages[:-1] + [last_msg]
+
+    return cleaned_text, pending_messages
+
 
 @app.post('/api/runs')
 def start_run(request: RunRequest):
     requested_mode = 'mcp' if request.python_code is not None else (request.mode or app.state.mode)
     if requested_mode not in ('stub', 'ollama', 'mcp', 'search', 'react'):
         raise HTTPException(422, 'Unknown chat mode.')
-    if not request.tools_enabled and (requested_mode in ('mcp', 'search', 'react') or request.file_read or request.file_write):
+    if not request.tools_enabled and (
+            requested_mode in ('mcp', 'search', 'react') or request.file_read or request.file_write):
         raise HTTPException(422, 'Tools are disabled for this request.')
     if requested_mode == 'mcp':
         if not request.tools_enabled:
@@ -1062,7 +1081,8 @@ def start_run(request: RunRequest):
         except McpError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         if explicit is not None:
-            raise HTTPException(status_code=422, detail='Explicit arguments conflict with content policy; nothing was executed.')
+            raise HTTPException(status_code=422,
+                                detail='Explicit arguments conflict with content policy; nothing was executed.')
 
     if not message:
         raise HTTPException(status_code=422, detail='Message cannot be empty.')
@@ -1135,7 +1155,8 @@ def start_run(request: RunRequest):
         # Never touches the session store: the id is server-made so it cannot collide with a saved chat.
         for item in request.history or []:
             if item.get('role') not in ('user', 'assistant') or not isinstance(item.get('content'), str):
-                raise HTTPException(status_code=422, detail='History entries need a user/assistant role and text content.')
+                raise HTTPException(status_code=422,
+                                    detail='History entries need a user/assistant role and text content.')
             if len(item['content']) > 50000:
                 raise HTTPException(status_code=422, detail='History entry too long.')
             temp_history.append({'role': item['role'], 'content': item['content']})
@@ -1193,12 +1214,17 @@ def start_run(request: RunRequest):
         guardrails=policy,
     )
 
+    # === CONNECTED FEATURE PIPELINE EXECUTION ===
+    user_content, to_send = run_feature_pipeline(user_content, to_send)
+    # ============================================
+
     if not request.tools_enabled:
         to_send.insert(0, {'role': 'system', 'content':
             'Tools are disabled for this turn. You have not searched, read files or executed code. '
             'Do not claim a tool action. If fresh sources or execution are required, explain that tools must be enabled.'})
 
-    requested_mode = 'mcp' if python_code is not None else ('ollama' if target_schema is not None else (request.mode or app.state.mode))
+    requested_mode = 'mcp' if python_code is not None else (
+        'ollama' if target_schema is not None else (request.mode or app.state.mode))
     automatic_tools = (requested_mode == 'ollama' and request.tools_enabled
                        and bool(app.state.mcp_servers) and target_schema is None and not file_write)
     effective_mode = requested_mode
@@ -1228,7 +1254,8 @@ def start_run(request: RunRequest):
         'guardrails': policy,
         'message': message,
         'python_code': python_code,
-        'user_content': user_content + ('\n\nUser-supplied Python source:\n' + python_code if python_code is not None else ''),
+        'user_content': user_content + (
+            '\n\nUser-supplied Python source:\n' + python_code if python_code is not None else ''),
         'session_id': session_id,
         'temporary': temporary,
         'persona_id': session_persona,
@@ -1241,11 +1268,11 @@ def start_run(request: RunRequest):
             # eligibility explicit here rather than relying on message shape.
             # A vector store is always available in the web app; only retrieved
             # results make this particular turn context-dependent.
-            effective_mode == 'ollama'
-            and attachment is None
-            and not retrieved_results
-            and not file_write
-            and not temporary
+                effective_mode == 'ollama'
+                and attachment is None
+                and not retrieved_results
+                and not file_write
+                and not temporary
         ),
         'mode': effective_mode,
         'host': host,
@@ -1574,11 +1601,11 @@ async def generate_events(run: Dict[str, Any]):
             # EV1 runs after the exact streamed answer has been assembled.  It
             # is advisory, so a skipped or failed evaluator never affects chat.
             if (
-                mode == 'ollama'
-                and run.get('formatted_context')
-                and not run.get('schema')
-                and policy is None
-                and full_reply.strip()
+                    mode == 'ollama'
+                    and run.get('formatted_context')
+                    and not run.get('schema')
+                    and policy is None
+                    and full_reply.strip()
             ):
                 try:
                     evaluation = await asyncio.to_thread(
@@ -1627,7 +1654,8 @@ async def generate_events(run: Dict[str, Any]):
             yield to_sse(stream.done('completed'))
 
     except Exception as exc:
-        detail = str(exc) if not policy or isinstance(exc, (GuardrailError, McpError, SearchError)) else 'Request failed; no unverified response was released.'
+        detail = str(exc) if not policy or isinstance(exc, (
+        GuardrailError, McpError, SearchError)) else 'Request failed; no unverified response was released.'
         yield to_sse(stream.emit('error', message=detail))
         yield to_sse(stream.done('failed'))
     finally:
@@ -1652,7 +1680,6 @@ def run_events(run_id: str):
         media_type='text/event-stream',
         headers={'Cache-Control': 'no-cache'},
     )
-
 
 
 @app.post('/api/forms/validate')
@@ -1682,7 +1709,6 @@ def submit_form_response(run_id: str, req: FormResponseRequest):
     run['form_response'] = answers
     run['form_waiting'] = False
     return {'run_id': run_id, 'status': 'resumed', 'received': answers}
-
 
 
 @app.get('/api/artifacts')
@@ -1753,7 +1779,6 @@ def export_artifact(artifact_id: str, format: str = Query('md')):
         return PlainTextResponse(content, media_type='text/markdown')
     except ArtifactError as err:
         raise HTTPException(status_code=404, detail=str(err))
-
 
 
 def _is_private_host(host: str) -> bool:
@@ -1829,7 +1854,8 @@ def export_public_snapshot(snapshot_id: str, format: str = Query('json'), downlo
     try:
         require_safe_export(app, app.state.snapshots.get_snapshot(snapshot_id))
         safe = re.sub(r'[^A-Za-z0-9_-]', '_', snapshot_id) or 'export'
-        attach = (lambda ext: {'Content-Disposition': f'attachment; filename="{safe}.{ext}"'}) if download else (lambda ext: None)
+        attach = (lambda ext: {'Content-Disposition': f'attachment; filename="{safe}.{ext}"'}) if download else (
+            lambda ext: None)
         if format == 'md':
             return PlainTextResponse(
                 app.state.snapshots.export_as_markdown(snapshot_id),
@@ -1839,7 +1865,8 @@ def export_public_snapshot(snapshot_id: str, format: str = Query('json'), downlo
         elif format == 'html':
             return HTMLResponse(
                 # A saved copy has no server to link back to, so it omits the download links.
-                app.state.snapshots.export_as_html(snapshot_id, None if download else f'/p/{quote(snapshot_id, safe="")}'),
+                app.state.snapshots.export_as_html(snapshot_id,
+                                                   None if download else f'/p/{quote(snapshot_id, safe="")}'),
                 headers=attach('html'),
             )
         elif format == 'pdf':
@@ -1856,6 +1883,7 @@ def export_public_snapshot(snapshot_id: str, format: str = Query('json'), downlo
             )
     except ExportError as err:
         raise HTTPException(status_code=404, detail=str(err))
+
 
 if __name__ == '__main__':
     import argparse
