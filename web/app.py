@@ -937,6 +937,10 @@ async def cancel_run(run_id: str):
     if run['stream'].finished:
         raise HTTPException(status_code=400, detail='Run already finished.')
     run['cancelled'] = True
+    if run.get('react_task') is not None:
+        run['react_task'].cancel()
+    if run.get('react_stop') is not None:
+        run['react_stop'].set()
     if run.get('mcp_task') is not None:
         run['mcp_task'].cancel()
     if run.get('search_task') is not None:
@@ -1081,47 +1085,25 @@ async def generate_events(run: Dict[str, Any]):
                     else:
                         yield to_sse(stream.emit(kind, **payload))
         elif mode == 'react':
-            from core.react import ReActLoop
-            reactor = ReActLoop(max_steps=5, max_time_seconds=30.0)
-
-            # Register your tools
-            if app.state.searcher:
-                reactor.register_tool("web_search", lambda query: f"Web results for: {query}")
-
-            def llm_bridge(msgs):
-                chunks = list(execute_turn_stream(
-                    host=run['host'],
-                    model=run['model'],
-                    to_send=msgs,
-                    timeout=run['timeout'],
-                    guardrails=policy,
-                ))
-                return "".join(chunks)
-
-            # Run the ReAct loop and leverage your existing EventStream to emit steps
-            react_result = reactor.run(
-                initial_prompt=run['message'],
-                llm_generate_func=llm_bridge,
-                system_prompt="You are an autonomous ReAct agent. Use JSON action blocks if tools are required."
-            )
-
-            # Use your native event stream to emit steps using your existing contract
-            for trace_step in react_result["trace"]:
-                if "tool" in trace_step:
-                    yield to_sse(stream.emit('tool_call', tool=trace_step.get("tool"),
-                                             observation=trace_step.get("observation")))
-                else:
-                    text = trace_step.get("model_output", "") + "\n"
-                    parts.append(text)
-                    yield to_sse(stream.emit('text_delta', text=text))
-
-            final_text = f"\n**Final Answer:** {react_result['final_answer']} (Reason: {react_result['stopping_reason']}, Steps: {react_result['steps_taken']})"
-
-            if policy is not None:
-                final_text = policy.output(final_text)
-
-            parts.append(final_text)
-            yield to_sse(stream.emit('text_delta', text=final_text))
+            from web.react_adapter import turn_events as react_events
+            from core.react_runtime import LoopFailure
+            try:
+                async for kind, payload in react_events(run, app.state.searcher):
+                    if kind == 'answer':
+                        answer = payload['text']
+                        if policy is not None:
+                            answer = policy.output(answer)
+                        parts.append(answer)
+                        yield to_sse(stream.emit('text_delta', text=answer))
+                    else:
+                        yield to_sse(stream.emit(kind, kind='react', **payload))
+            except asyncio.CancelledError:
+                if not run.get('cancelled'):
+                    raise
+            except LoopFailure as error:
+                yield to_sse(stream.emit('error', message='ReAct stopped: ' + str(error)))
+                yield to_sse(stream.done('failed'))
+                return
 
         elif mode in ('ollama', 'search'):
             bridge = RealtimeStreamBridge(

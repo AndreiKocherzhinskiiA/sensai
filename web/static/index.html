@@ -1371,7 +1371,26 @@
         scrollDown();
         return card;
       }
+// A1 ReAct execution evidence (not private chain-of-thought).
+      currentSource.addEventListener('loop_step', e => {
+        const data = JSON.parse(e.data).payload;
+        if (data.kind !== 'react') return;
+        setStatus('ReAct iteration ' + data.step + ': ' + data.status, 'busy');
+        if (data.status === 'protocol_error') toolCard('Action format correction', data, true);
+      });
+      currentSource.addEventListener('loop_done', e => {
+        const data = JSON.parse(e.data).payload;
+        if (data.kind === 'react') toolCard('ReAct completed', data, true);
+      });
       currentSource.addEventListener('tool_call', e => {
+        const data = JSON.parse(e.data).payload;
+        if (data.kind === 'react') toolCard('Step ' + data.step + ': ' + data.tool, data.arguments, true);
+      });
+      currentSource.addEventListener('tool_result', e => {
+        const data = JSON.parse(e.data).payload;
+        if (data.kind === 'react') toolCard('Step ' + data.step + ': ' + (data.ok ? 'result' : 'tool error'), data.result, true);
+      });
+            currentSource.addEventListener('tool_call', e => {
         const data = JSON.parse(e.data).payload;
         if (data.kind === 'search') {
           setStatus('Searching the web…', 'busy');
