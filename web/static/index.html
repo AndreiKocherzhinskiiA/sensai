@@ -1197,13 +1197,6 @@
   </section>
 
   <div class="app-shell">
-    <aside id="profiles-sidebar" aria-label="Sessions">
-      <h2>Sessions</h2>
-      <button id="new-session-btn" class="btn" type="button">
-        New session
-      </button>
-      <div id="profile-list"></div>
-    </aside>
   <main>
     <div id="log" role="log" aria-live="polite" aria-label="Conversation" tabindex="0">
       <div class="wrap" id="log-inner"></div>
@@ -1958,124 +1951,6 @@
       while (cur.length > segs.length) cur.pop().remove();
     }
     const replyText = body => (body._raw !== undefined ? body._raw : body.textContent);
-    const newSessionBtn = document.getElementById('new-session-btn');
-
-    let sessionBusy = false;
-    const sessionList = document.getElementById('profile-list');
-
-    async function sessionRequest(path, options = {}) {
-      const response = await fetch(path, options);
-      const data = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(typeof data?.detail === 'string' ? data.detail : `HTTP ${response.status}`);
-      }
-      return data;
-    }
-
-    function applySession(data) {
-      sessionId = data.session_id || data.id;
-      localStorage.setItem('sensai_session_id', sessionId);
-      savedPersonaId = data.persona_id || null;
-      personaSelect.value = savedPersonaId || '';
-      personaDD.render();
-      logInner.replaceChildren();
-      currentMessages = [];
-      for (const message of data.messages || []) {
-        if (message.role === 'user' || message.role === 'assistant') {
-          addLine(message.role, message.content);
-          currentMessages.push({role: message.role, content: message.content});
-        }
-      }
-      sessionTotalTokens = data.total_tokens || 0;
-      setUsage(0, sessionTotalTokens);
-      shareBox.replaceChildren();
-      shareBox.classList.remove('show');
-      input.value = '';
-      autosize();
-      showEmpty();
-      scrollDown();
-    }
-
-    async function refreshSessionList() {
-      const sessions = await sessionRequest('/api/sessions');
-      sessionList.replaceChildren();
-      for (const session of sessions) {
-        const id = session.session_id || session.id;
-        const row = document.createElement('button');
-        row.type = 'button';
-        row.className = 'profile-item';
-        row.classList.toggle('active', id === sessionId);
-        row.setAttribute('aria-current', id === sessionId ? 'true' : 'false');
-        const title = document.createElement('span');
-        title.className = 'p-title';
-        const firstUser = (session.messages || []).find(m => m.role === 'user');
-        title.textContent = session.title === 'New session' && firstUser
-          ? firstUser.content.slice(0, 60) : (session.title || 'New session');
-        const subtitle = document.createElement('span');
-        subtitle.className = 'p-sub';
-        const count = (session.messages || []).filter(m => m.role === 'user' || m.role === 'assistant').length;
-        subtitle.textContent = `${count} message${count === 1 ? '' : 's'}`;
-        row.append(title, subtitle);
-        row.addEventListener('click', () => switchSession(id));
-        sessionList.appendChild(row);
-      }
-    }
-
-    function canChangeSession() {
-      if (sessionBusy) return false;
-      if (send.disabled || currentRunId || currentSource) {
-        setStatus('Stop the current reply before changing sessions.', 'busy');
-        return false;
-      }
-      return true;
-    }
-
-    async function updateSessionListSafely() {
-      try { await refreshSessionList(); }
-      catch (error) { setStatus('Could not refresh sessions: ' + error.message, 'fail'); }
-    }
-
-    async function switchSession(id) {
-      if (id === sessionId || !canChangeSession()) return;
-      sessionBusy = true;
-      newSessionBtn.disabled = true;
-      try {
-        const data = await sessionRequest(`/api/sessions/${encodeURIComponent(id)}/select`, {method: 'POST'});
-        applySession(data);
-        setStatus('Session loaded', '');
-        await updateSessionListSafely();
-        input.focus();
-      } catch (error) {
-        setStatus('Could not load session: ' + error.message, 'fail');
-      } finally {
-        sessionBusy = false;
-        newSessionBtn.disabled = false;
-      }
-    }
-
-    async function startNewSession() {
-      if (!canChangeSession()) return;
-      sessionBusy = true;
-      newSessionBtn.disabled = true;
-      try {
-        const data = await sessionRequest('/api/sessions', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({title: 'New session', persona_id: personaSelect.value || null})
-        });
-        applySession(data);
-        setStatus('New session created', '');
-        await updateSessionListSafely();
-        input.focus();
-      } catch (error) {
-        setStatus('Could not create session: ' + error.message, 'fail');
-      } finally {
-        sessionBusy = false;
-        newSessionBtn.disabled = false;
-      }
-    }
-
-    newSessionBtn.addEventListener('click', startNewSession);
 
     function copyButton(body) {
       const b = el('button', 'msg-copy');
@@ -2269,31 +2144,6 @@
     window.reloadPersonas = loadPersonas;
     loadPersonas();
     // Load persona choices before restoring the selected conversation.
-    sessionBusy = true;
-    newSessionBtn.disabled = true;
-    (async () => {
-      try {
-        const personas = await sessionRequest('/api/personas');
-        for (const persona of personas) {
-          const option = document.createElement('option');
-          option.value = persona.id;
-          option.textContent = persona.name;
-          if (persona.role) option.dataset.sub = persona.role;
-          personaSelect.appendChild(option);
-        }
-        personaDD.render();
-        const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
-        if (response.ok) applySession(await response.json());
-        else if (response.status !== 404) throw new Error(`HTTP ${response.status}`);
-        await refreshSessionList();
-      } catch (error) {
-        setStatus('Could not load sessions: ' + error.message, 'fail');
-      } finally {
-        sessionBusy = false;
-        newSessionBtn.disabled = false;
-        showEmpty();
-      }
-    })();
 
     personaSelect.addEventListener('change', async () => {
       const personaId = personaSelect.value || null;
@@ -3055,7 +2905,6 @@
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      if (sessionBusy) return;
       if (send.disabled) {
         setStatus('Still replying · wait for it, or press Esc to stop', 'busy');
         form.classList.remove('nudge');
