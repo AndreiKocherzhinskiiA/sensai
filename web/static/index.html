@@ -161,22 +161,42 @@
     .icon-btn[aria-expanded="true"] .k2 { transform: translateX(4px); }
     .icon-btn[aria-expanded="true"] svg { transform: none; }
 
-    /* ---------- Profiles Sidebar ---------- */
+    /* ---------- Sessions sidebar ---------- */
     .app-shell { display: flex; flex: 1; min-height: 0; width: 100%; }
+    .app-shell > main { min-width: 0; }
     #profiles-sidebar {
-      width: 260px; background: var(--panel); border-right: 1px solid var(--line);
-      display: flex; flex-direction: column; padding: 1rem; overflow-y: auto; z-index: 5;
+      flex: 0 0 248px; width: 248px; min-height: 0;
+      margin: .75rem 0 1rem 1rem; padding: 1rem;
+      display: flex; flex-direction: column; gap: .75rem;
+      overflow: hidden; position: relative; z-index: 5;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
+      backdrop-filter: blur(14px); box-shadow: 0 12px 32px -24px var(--shadow);
     }
-    #profiles-sidebar h2 { font-size: .95rem; font-weight: 650; margin: 0 0 .8rem; color: var(--ink); }
+    #profiles-sidebar h2 {
+      margin: 0; padding: .15rem .25rem; color: var(--ink-3);
+      font-size: .72rem; font-weight: 650; letter-spacing: .09em; text-transform: uppercase;
+    }
+    #new-session-btn {
+      flex: none; width: 100%; min-height: 40px; margin: 0;
+      justify-content: flex-start; border-color: var(--acc-edge);
+      background: var(--acc-wash); color: var(--acc-text);
+    }
+    #profile-list {
+      flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .4rem;
+      overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent;
+    }
     .profile-item {
-      display: flex; flex-direction: column; gap: .2rem; padding: .65rem .75rem; margin-bottom: .4rem;
-      background: var(--raise); border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
-      transition: border-color .2s, background-color .2s; text-align: left; width: 100%; color: var(--ink);
+      flex: none; width: 100%; margin: 0; padding: .75rem;
+      display: flex; flex-direction: column; gap: .25rem;
+      border: 1px solid transparent; border-radius: 12px;
+      background: transparent; color: var(--ink-2); font: inherit;
+      text-align: left; cursor: pointer;
+      transition: border-color .2s, background-color .2s, color .2s;
     }
-    .profile-item:hover { border-color: var(--line-strong); background: var(--hover-bg); }
+    .profile-item:hover { border-color: var(--line); background: var(--hover-bg); color: var(--ink); }
     .profile-item.active { border-color: var(--acc-edge); background: var(--acc-wash); color: var(--acc-text); }
-    .profile-item .p-title { font-size: .85rem; font-weight: 600; }
-    .profile-item .p-sub { font-size: .75rem; color: var(--ink-3); }
+    .profile-item .p-title { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .84rem; font-weight: 550; }
+    .profile-item .p-sub { color: var(--ink-3); font-size: .72rem; }
     @media (max-width: 50rem) { #profiles-sidebar { display: none; } }
 
     /* ---------- Appearance popover ---------- */
@@ -575,8 +595,8 @@
   </section>
 
   <div class="app-shell">
-    <aside id="profiles-sidebar" aria-label="Profiles">
-      <h2>Profiles</h2>
+    <aside id="profiles-sidebar" aria-label="Sessions">
+      <h2>Sessions</h2>
       <button id="new-session-btn" class="btn" type="button">
         New session
       </button>
@@ -910,27 +930,119 @@
 
     const newSessionBtn = document.getElementById('new-session-btn');
 
-    function startNewSession() {
-      if (currentSource) {
-        currentSource.close();
-        currentSource = null;
+    let sessionBusy = false;
+    const sessionList = document.getElementById('profile-list');
+
+    async function sessionRequest(path, options = {}) {
+      const response = await fetch(path, options);
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(typeof data?.detail === 'string' ? data.detail : `HTTP ${response.status}`);
       }
+      return data;
+    }
 
-      currentRunId = null;
-      currentMessages = [];
-      sessionTotalTokens = 0;
-
-      sessionId = 'sess_' + Math.random().toString(36).substring(2, 10);
-      localStorage.setItem('sensai-session-id', sessionId);
-
+    function applySession(data) {
+      sessionId = data.session_id || data.id;
+      localStorage.setItem('sensai_session_id', sessionId);
+      savedPersonaId = data.persona_id || null;
+      personaSelect.value = savedPersonaId || '';
+      personaDD.render();
       logInner.replaceChildren();
+      currentMessages = [];
+      for (const message of data.messages || []) {
+        if (message.role === 'user' || message.role === 'assistant') {
+          addLine(message.role, message.content);
+          currentMessages.push({role: message.role, content: message.content});
+        }
+      }
+      sessionTotalTokens = data.total_tokens || 0;
+      setUsage(0, sessionTotalTokens);
+      shareBox.replaceChildren();
       shareBox.classList.remove('show');
-      setUsage(0, 0);
-      setStatus('New session started', 'ready');
-
+      input.value = '';
+      autosize();
       showEmpty();
-      updateSidebarSelection(personaSelect.value);
-      input.focus();
+      scrollDown();
+    }
+
+    async function refreshSessionList() {
+      const sessions = await sessionRequest('/api/sessions');
+      sessionList.replaceChildren();
+      for (const session of sessions) {
+        const id = session.session_id || session.id;
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'profile-item';
+        row.classList.toggle('active', id === sessionId);
+        row.setAttribute('aria-current', id === sessionId ? 'true' : 'false');
+        const title = document.createElement('span');
+        title.className = 'p-title';
+        const firstUser = (session.messages || []).find(m => m.role === 'user');
+        title.textContent = session.title === 'New session' && firstUser
+          ? firstUser.content.slice(0, 60) : (session.title || 'New session');
+        const subtitle = document.createElement('span');
+        subtitle.className = 'p-sub';
+        const count = (session.messages || []).filter(m => m.role === 'user' || m.role === 'assistant').length;
+        subtitle.textContent = `${count} message${count === 1 ? '' : 's'}`;
+        row.append(title, subtitle);
+        row.addEventListener('click', () => switchSession(id));
+        sessionList.appendChild(row);
+      }
+    }
+
+    function canChangeSession() {
+      if (sessionBusy) return false;
+      if (send.disabled || currentRunId || currentSource) {
+        setStatus('Stop the current reply before changing sessions.', 'busy');
+        return false;
+      }
+      return true;
+    }
+
+    async function updateSessionListSafely() {
+      try { await refreshSessionList(); }
+      catch (error) { setStatus('Could not refresh sessions: ' + error.message, 'fail'); }
+    }
+
+    async function switchSession(id) {
+      if (id === sessionId || !canChangeSession()) return;
+      sessionBusy = true;
+      newSessionBtn.disabled = true;
+      try {
+        const data = await sessionRequest(`/api/sessions/${encodeURIComponent(id)}/select`, {method: 'POST'});
+        applySession(data);
+        setStatus('Session loaded', '');
+        await updateSessionListSafely();
+        input.focus();
+      } catch (error) {
+        setStatus('Could not load session: ' + error.message, 'fail');
+      } finally {
+        sessionBusy = false;
+        newSessionBtn.disabled = false;
+      }
+    }
+
+    async function startNewSession() {
+      if (!canChangeSession()) return;
+      sessionBusy = true;
+      newSessionBtn.disabled = true;
+      try {
+        const data = await sessionRequest('/api/sessions', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({title: 'New session', persona_id: personaSelect.value || null})
+        });
+        applySession(data);
+        setStatus('New session created', '');
+        await updateSessionListSafely();
+        input.focus();
+      } catch (error) {
+        setStatus('Could not create session: ' + error.message, 'fail');
+      } finally {
+        sessionBusy = false;
+        newSessionBtn.disabled = false;
+      }
     }
 
     newSessionBtn.addEventListener('click', startNewSession);
@@ -1042,38 +1154,32 @@
       return body;
     }
 
-    fetch(`/api/sessions/${sessionId}`)
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        if (!data) return;
-        savedPersonaId = data.persona_id;
-        if (savedPersonaId) { personaSelect.value = savedPersonaId; personaDD.render(); }
-        if (Array.isArray(data.messages)) {
-          data.messages.forEach(m => {
-            if (m.role === 'user' || m.role === 'assistant') {
-              addLine(m.role, m.content);
-              currentMessages.push({role: m.role, content: m.content});
-            }
-          });
+    // Load persona choices before restoring the selected conversation.
+    sessionBusy = true;
+    newSessionBtn.disabled = true;
+    (async () => {
+      try {
+        const personas = await sessionRequest('/api/personas');
+        for (const persona of personas) {
+          const option = document.createElement('option');
+          option.value = persona.id;
+          option.textContent = persona.name;
+          if (persona.role) option.dataset.sub = persona.role;
+          personaSelect.appendChild(option);
         }
-      })
-      .catch(() => {})
-      .finally(showEmpty);
-
-    fetch('/api/personas')
-      .then(res => res.ok ? res.json() : [])
-      .then(personas => {
-        personas.forEach(p => {
-          const opt = document.createElement('option');
-          opt.value = p.id;
-          opt.textContent = p.name;
-          if (p.role) opt.dataset.sub = p.role;
-          personaSelect.appendChild(opt);
-        });
-        if (savedPersonaId) personaSelect.value = savedPersonaId;
         personaDD.render();
-      })
-      .catch(() => {});
+        const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
+        if (response.ok) applySession(await response.json());
+        else if (response.status !== 404) throw new Error(`HTTP ${response.status}`);
+        await refreshSessionList();
+      } catch (error) {
+        setStatus('Could not load sessions: ' + error.message, 'fail');
+      } finally {
+        sessionBusy = false;
+        newSessionBtn.disabled = false;
+        showEmpty();
+      }
+    })();
 
     // Persona switch mid-session without losing history (A5)
     personaSelect.addEventListener('change', async () => {
@@ -1167,6 +1273,7 @@
       }
       currentRunId = null;
       document.querySelector('.msg.assistant.streaming, .msg.assistant.waiting')?.classList.remove('streaming', 'waiting');
+      void updateSessionListSafely();
     }
 
     cancel.addEventListener('click', async () => {
@@ -1199,6 +1306,7 @@
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
+      if (sessionBusy) return;
       if (send.disabled) {
         setStatus('Still replying · wait for it, or press Esc to stop', 'busy');
         form.classList.remove('nudge');
