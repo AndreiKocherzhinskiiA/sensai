@@ -157,6 +157,26 @@ def make_system_message(
     return {"role": "system", "content": prompt}
 
 
+def run_feature_pipeline(
+    user_text: str,
+    pending_messages: List[Dict[str, str]],
+) -> Tuple[str, List[Dict[str, str]]]:
+    """Execute unified feature chain/pipeline stages on the active turn.
+
+    Connects preprocessing hooks, message transformations, or task-specific
+    pipeline steps across both CLI and Web interactions before guardrail and
+    retrieval evaluation.
+    """
+    cleaned_text = user_text.strip()
+    updated_messages = [msg.copy() for msg in pending_messages]
+
+    if updated_messages:
+        last_msg = updated_messages[-1]
+        last_msg["content"] = cleaned_text
+
+    return cleaned_text, updated_messages
+
+
 def assemble_turn(
     system_prompt: str,
     user_text: str,
@@ -212,6 +232,11 @@ def assemble_turn(
 
     pending = [sys_msg] + clean_history + [{'role': 'user', 'content': content}]
 
+    # 3. Connected feature pipeline stage
+    content, pending = run_feature_pipeline(content, pending)
+    user_text = content
+
+    # 4. Content policy checks
     if guardrails is not None:
         user_text = guardrails.check_input(user_text)
         pending = guardrails.messages(pending)
@@ -221,6 +246,7 @@ def assemble_turn(
     retrieved_results: List[Dict[str, Any]] = []
     formatted_context: str = ""
 
+    # 5. RAG Retrieval & Injection
     if retrieval_store is not None and user_text.strip():
         try:
             retrieved_results = (retrieval_func or retrieve_advanced)(
@@ -276,7 +302,7 @@ _cache_logger = logging.getLogger("uvicorn.error")
 def get_semantic_cache(base_url: Optional[str] = None):
     """Return a cache matching the current runtime configuration.
 
-    Environment variables may be changed by a long-lived process or test.  Keep
+    Environment variables may be changed by a long-lived process or test. Keep
     the singleton only while every cache-affecting setting remains identical.
     """
     global _semantic_cache, _semantic_cache_config
@@ -450,7 +476,6 @@ def execute_turn_stream(
         and not (stop_event is not None and stop_event.is_set())
     )
 
-    # Do not reuse an answer when earlier conversation turns may affect it.
     prior_turns = to_send[:-1]
     has_conversation_history = any(
         message.get("role") in ("user", "assistant")
@@ -488,7 +513,6 @@ def execute_turn_stream(
                 "[A6 CACHE ERROR] Cache lookup failed; using model generation.",
                 exc_info=True,
             )
-            # Cache failures must not prevent normal chat responses.
             cache = None
             query_embedding = None
     elif not cache_allowed or has_conversation_history:
@@ -510,7 +534,6 @@ def execute_turn_stream(
             chunks.append(chunk)
             yield chunk
 
-        # Store only a non-empty response after generation finishes normally.
         if (
             cache is not None
             and query is not None
@@ -527,7 +550,6 @@ def execute_turn_stream(
                     embedding=query_embedding,
                 )
             except Exception:
-                # Cache storage failures must not break chat.
                 pass
     finally:
         if stop_event is not None and stop_event.is_set():

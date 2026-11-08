@@ -334,6 +334,43 @@
     .tk-k { color: var(--tk-kw); } .tk-s { color: var(--tk-str); } .tk-n { color: var(--tk-num); }
     .tk-c { color: var(--tk-com); font-style: italic; } .tk-f { color: var(--tk-fn); } .tk-t { color: var(--tk-ty); } .tk-p { color: var(--tk-pun); }
     @media (prefers-reduced-motion: reduce) { .codeblock.open-end .cb-pre code::after { animation: none; } }
+    /* ---------- Sessions sidebar ---------- */
+    .app-shell { display: flex; flex: 1; min-height: 0; width: 100%; }
+    .app-shell > main { min-width: 0; }
+    #profiles-sidebar {
+      flex: 0 0 248px; width: 248px; min-height: 0;
+      margin: .75rem 0 1rem 1rem; padding: 1rem;
+      display: flex; flex-direction: column; gap: .75rem;
+      overflow: hidden; position: relative; z-index: 5;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
+      backdrop-filter: blur(14px); box-shadow: 0 12px 32px -24px var(--shadow);
+    }
+    #profiles-sidebar h2 {
+      margin: 0; padding: .15rem .25rem; color: var(--ink-3);
+      font-size: .72rem; font-weight: 650; letter-spacing: .09em; text-transform: uppercase;
+    }
+    #new-session-btn {
+      flex: none; width: 100%; min-height: 40px; margin: 0;
+      justify-content: flex-start; border-color: var(--acc-edge);
+      background: var(--acc-wash); color: var(--acc-text);
+    }
+    #profile-list {
+      flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .4rem;
+      overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent;
+    }
+    .profile-item {
+      flex: none; width: 100%; margin: 0; padding: .75rem;
+      display: flex; flex-direction: column; gap: .25rem;
+      border: 1px solid transparent; border-radius: 12px;
+      background: transparent; color: var(--ink-2); font: inherit;
+      text-align: left; cursor: pointer;
+      transition: border-color .2s, background-color .2s, color .2s;
+    }
+    .profile-item:hover { border-color: var(--line); background: var(--hover-bg); color: var(--ink); }
+    .profile-item.active { border-color: var(--acc-edge); background: var(--acc-wash); color: var(--acc-text); }
+    .profile-item .p-title { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .84rem; font-weight: 550; }
+    .profile-item .p-sub { color: var(--ink-3); font-size: .72rem; }
+    @media (max-width: 50rem) { #profiles-sidebar { display: none; } }
 
     /* ---------- Appearance popover ---------- */
     .pop {
@@ -916,6 +953,11 @@
     #cmd-hints .h-name { font-family: var(--mono); color: var(--ink); white-space: nowrap; }
     #cmd-hints .h-args { font-family: var(--mono); color: var(--ink-3); white-space: nowrap; }
     #cmd-hints .h-desc { color: var(--ink-3); margin-left: auto; text-align: right; font-size: .78rem; }
+    #new-session-btn {
+      width: 100%;
+      margin-bottom: 0.75rem;
+      flex: none;
+    }
   </style>
 </head>
 <body>
@@ -1154,7 +1196,7 @@
     </div>
   </section>
 
-
+  <div class="app-shell">
   <main>
     <div id="log" role="log" aria-live="polite" aria-label="Conversation" tabindex="0">
       <div class="wrap" id="log-inner"></div>
@@ -1198,7 +1240,7 @@
       </div>
     </div>
   </main>
-  </div>
+ </div>
 
   <script>
     fetch('/api/guardrails').then(response => {
@@ -2101,6 +2143,7 @@
     }
     window.reloadPersonas = loadPersonas;
     loadPersonas();
+    // Load persona choices before restoring the selected conversation.
 
     personaSelect.addEventListener('change', async () => {
       const personaId = personaSelect.value || null;
@@ -2795,6 +2838,7 @@
       currentRunId = null;
       refreshSessions();
       document.querySelector('.msg.assistant.streaming, .msg.assistant.waiting')?.classList.remove('streaming', 'waiting');
+      void updateSessionListSafely();
     }
 
     cancel.addEventListener('click', async () => {
@@ -2955,7 +2999,26 @@
         scrollDown();
         return card;
       }
+// A1 ReAct execution evidence (not private chain-of-thought).
+      currentSource.addEventListener('loop_step', e => {
+        const data = JSON.parse(e.data).payload;
+        if (data.kind !== 'react') return;
+        setStatus('ReAct iteration ' + data.step + ': ' + data.status, 'busy');
+        if (data.status === 'protocol_error') toolCard('Action format correction', data, true);
+      });
+      currentSource.addEventListener('loop_done', e => {
+        const data = JSON.parse(e.data).payload;
+        if (data.kind === 'react') toolCard('ReAct completed', data, true);
+      });
       currentSource.addEventListener('tool_call', e => {
+        const data = JSON.parse(e.data).payload;
+        if (data.kind === 'react') toolCard('Step ' + data.step + ': ' + data.tool, data.arguments, true);
+      });
+      currentSource.addEventListener('tool_result', e => {
+        const data = JSON.parse(e.data).payload;
+        if (data.kind === 'react') toolCard('Step ' + data.step + ': ' + (data.ok ? 'result' : 'tool error'), data.result, true);
+      });
+            currentSource.addEventListener('tool_call', e => {
         const data = JSON.parse(e.data).payload;
         if (data.kind === 'search') {
           setStatus('Searching the web…', 'busy');
