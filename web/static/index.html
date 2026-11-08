@@ -478,6 +478,11 @@
       .dots i, #status.busy::before, .msg.assistant.streaming .body::after, .send.ready svg, form.nudge { animation: none; }
       #log { scroll-behavior: auto; }
     }
+    #new-session-btn {
+      width: 100%;
+      margin-bottom: 0.75rem;
+      flex: none;
+    }
   </style>
 </head>
 <body>
@@ -572,6 +577,9 @@
   <div class="app-shell">
     <aside id="profiles-sidebar" aria-label="Profiles">
       <h2>Profiles</h2>
+      <button id="new-session-btn" class="btn" type="button">
+        New session
+      </button>
       <div id="profile-list"></div>
     </aside>
   <main>
@@ -899,6 +907,33 @@
     let savedPersonaId = null;
 
     const ICON_COPY = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.5A1 1 0 0 0 9.5 2.5h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/></svg>';
+
+    const newSessionBtn = document.getElementById('new-session-btn');
+
+    function startNewSession() {
+      if (currentSource) {
+        currentSource.close();
+        currentSource = null;
+      }
+
+      currentRunId = null;
+      currentMessages = [];
+      sessionTotalTokens = 0;
+
+      sessionId = 'sess_' + Math.random().toString(36).substring(2, 10);
+      localStorage.setItem('sensai-session-id', sessionId);
+
+      logInner.replaceChildren();
+      shareBox.classList.remove('show');
+      setUsage(0, 0);
+      setStatus('New session started', 'ready');
+
+      showEmpty();
+      updateSidebarSelection(personaSelect.value);
+      input.focus();
+    }
+
+    newSessionBtn.addEventListener('click', startNewSession);
 
     function copyButton(body) {
       const b = el('button', 'msg-copy');
