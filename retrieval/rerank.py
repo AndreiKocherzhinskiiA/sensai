@@ -43,9 +43,10 @@ def _score_relevance(query: str, passage: str, model: str,
     return max(0.0, min(10.0, score))  # clamp to [0, 10]
 
 
-def rerank(query: str, results: list[dict], model: str = "qwen3",
+def rerank(query: str, results: list[dict], model: str = "qwen3:0.6b",
            base_url: str = "http://localhost:11434", timeout: float = 30,
-           top_n: int = 10, rejection_threshold: float = 3.0) -> list[dict]:
+           top_n: int = 10, rejection_threshold: float = 3.0,
+           strict: bool = False) -> list[dict]:
     """Re-score the top_n results using an LLM judge, then drop low-relevance ones.
 
     - Only the top_n candidates (by their existing score) are re-scored, to
@@ -66,7 +67,11 @@ def rerank(query: str, results: list[dict], model: str = "qwen3",
         relevance = _score_relevance(query, item["content"], model, base_url, timeout)
         new_item = dict(item)
         if relevance is None:
-            # Judge unavailable: keep the item, unscored by rerank.
+            if strict:
+                raise RuntimeError(
+                    f"Reranking failed for source {item.get('source_file', 'unknown')}"
+                )
+            # Backward-compatible opt-out: keep the item when strict mode is disabled.
             new_item["rerank_score"] = None
             reranked.append(new_item)
         else:

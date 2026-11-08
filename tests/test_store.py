@@ -1,5 +1,7 @@
 """Unit tests for retrieval/store.py"""
 import unittest
+import tempfile
+from pathlib import Path
 
 from retrieval.store import VectorStore, cosine_similarity
 
@@ -84,6 +86,61 @@ class VectorStoreTests(unittest.TestCase):
         self.store.add("b.md", 1, 1, "content", [1, 0, 0], metadata={"version": "v2"})
         results = self.store.search([1, 0, 0], top_k=5)
         self.assertEqual(len(results), 2)
+
+    def test_collection_configuration_and_isolation(self):
+        self.store.create_collection(
+            "course",
+            name="Course notes",
+            embedding_model="test-embedder",
+            chunk_size=10,
+            chunk_overlap=2,
+            relevance_threshold=0.8,
+        )
+        self.store.add("course.md", 1, 1, "course content", [1, 0, 0],
+                       collection_id="course")
+
+        self.assertEqual(self.store.get_collection("course")["embedding_model"], "test-embedder")
+        self.assertEqual(self.store.get_all_for_collection("course")[0]["collection_id"], "course")
+        self.assertEqual(self.store.get_all(), [])
+
+    def test_collection_rejects_incompatible_embedding_dimension(self):
+        self.store.add("a.md", 1, 1, "content", [1, 0, 0])
+        with self.assertRaises(ValueError):
+            self.store.add("b.md", 1, 1, "content", [1, 0])
+
+    def test_duplicate_chunk_is_upserted_without_duplication(self):
+        first_id = self.store.add("a.md", 1, 1, "content", [1, 0, 0])
+        second_id = self.store.add("a.md", 1, 1, "content", [1, 0, 0])
+
+        self.assertEqual(first_id, second_id)
+        self.assertEqual(len(self.store.get_all()), 1)
+
+    def test_threshold_rejects_low_similarity_and_accepts_boundary(self):
+        self.store.add("a.md", 1, 1, "relevant", [1, 0, 0])
+        self.store.add("b.md", 1, 1, "unrelated", [0, 1, 0])
+
+        self.assertEqual(
+            [item["source_file"] for item in self.store.search(
+                [1, 0, 0], threshold=1.0
+            )],
+            ["a.md"],
+        )
+        with self.assertRaises(ValueError):
+            self.store.search([1, 0, 0], threshold=1.1)
+
+    def test_persistent_store_preserves_collection_and_chunks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "vectors.db")
+            first = VectorStore(path)
+            first.create_collection("persisted")
+            first.add("notes.md", 1, 1, "persistent content", [1, 0, 0],
+                      collection_id="persisted")
+            first.close()
+
+            second = VectorStore(path)
+            self.addCleanup(second.close)
+            self.assertEqual(second.get_collection("persisted")["name"], "persisted")
+            self.assertEqual(len(second.get_all_for_collection("persisted")), 1)
 
 
 if __name__ == '__main__':

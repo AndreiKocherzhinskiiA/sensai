@@ -141,6 +141,9 @@ app.state.prompts = PromptVersionStore(str(settings.prompts_db))
 app.state.artifacts = ArtifactStore(str(settings.artifacts_db))
 app.state.snapshots = SnapshotStore(str(settings.snapshots_db))
 app.state.vector_store = VectorStore(':memory:')
+app.state.retrieval_collection = settings.retrieval_collection
+app.state.retrieval_model = settings.retrieval_model
+app.state.retrieval_top_k = settings.retrieval_top_k
 
 def get_workspace_writer(root_path: Optional[Path]) -> Optional[Any]:
     if not root_path:
@@ -170,6 +173,7 @@ class RunRequest(BaseModel):
     tools_enabled: StrictBool = True
     file_read: Optional[str] = None
     file_write: Optional[Dict[str, str]] = None
+    retrieval_filters: Optional[Dict[str, Any]] = None
     # Temporary chat: nothing is saved (no session, no events, no cache); the client supplies the history.
     temporary: StrictBool = False
     history: Optional[List[Dict[str, str]]] = Field(default=None, max_length=60)
@@ -207,6 +211,37 @@ class IngestRequest(BaseModel):
     directory: Optional[str] = None
     content: Optional[str] = None
     filename: Optional[str] = 'document.txt'
+    collection_id: str = 'default'
+    embedding_model: Optional[str] = None
+    chunk_size: Optional[int] = None
+    chunk_overlap: Optional[int] = None
+
+
+class CollectionRequest(BaseModel):
+    collection_id: str
+    name: Optional[str] = None
+    embedding_model: str = 'nomic-embed-text'
+    chunk_size: int = 20
+    chunk_overlap: int = 5
+    similarity_metric: str = 'cosine'
+    relevance_threshold: float = 0.55
+
+
+class CollectionUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    embedding_model: Optional[str] = None
+    chunk_size: Optional[int] = None
+    chunk_overlap: Optional[int] = None
+    similarity_metric: Optional[str] = None
+    relevance_threshold: Optional[float] = None
+
+
+class RetrievalSearchRequest(BaseModel):
+    query: str
+    collection_id: str = 'default'
+    top_k: int = 5
+    threshold: Optional[float] = None
+    filters: Optional[Dict[str, Any]] = None
 
 
 class CreatePromptRequest(BaseModel):
@@ -479,7 +514,13 @@ def save_profile(req: ProfileRequest):
 
 
 @app.post('/api/retrieval/upload')
-async def upload_retrieval_document(file: UploadFile = File(...)):
+async def upload_retrieval_document(
+    file: UploadFile = File(...),
+    collection_id: str = 'default',
+    embedding_model: Optional[str] = None,
+    chunk_size: Optional[int] = None,
+    chunk_overlap: Optional[int] = None,
+):
     """Upload and index a UTF-8 TXT or Markdown document for RAG."""
     max_bytes = 5 * 1024 * 1024
     original_name = Path(file.filename or '').name
@@ -499,16 +540,22 @@ async def upload_retrieval_document(file: UploadFile = File(...)):
 
     content = input_value(app, content)
     filename = input_value(app, original_name)
-    chunks = chunk_text(content)
+    collection = _configure_ingestion_collection(
+        collection_id, embedding_model, chunk_size, chunk_overlap
+    )
+    chunks = chunk_text(
+        content,
+        chunk_size=collection['chunk_size'],
+        chunk_overlap=collection['chunk_overlap'],
+    )
     if not chunks:
         raise HTTPException(status_code=422, detail='The document contains no indexable text.')
 
     contents = [chunk['content'] for chunk in chunks]
     try:
-        vectors = embed(contents)
-    except Exception:
-        from retrieval.rag import _deterministic_fallback_embed
-        vectors = [_deterministic_fallback_embed(text) for text in contents]
+        vectors = embed(contents, model=collection['embedding_model'])
+    except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=f'Embedding failed: {error}') from error
 
     app.state.vector_store.delete_source(filename)
     for chunk, vector in zip(chunks, vectors):
@@ -518,19 +565,21 @@ async def upload_retrieval_document(file: UploadFile = File(...)):
             end_line=chunk['end_line'],
             content=chunk['content'],
             embedding=vector,
+            collection_id=app.state.retrieval_collection,
         )
 
     return {
         'status': 'ingested',
         'filename': filename,
         'chunks_count': len(chunks),
+        'collection_id': collection_id,
         'message': f'Indexed {filename} into {len(chunks)} chunk(s).',
     }
 
 
 @app.get('/api/retrieval/sources')
-def list_sources():
-    all_chunks = app.state.vector_store.get_all()
+def list_sources(collection_id: str = 'default'):
+    all_chunks = app.state.vector_store.get_all_for_collection(collection_id)
     sources: Dict[str, int] = {}
     for c in all_chunks:
         src = c.get('source_file', 'unknown')
@@ -538,6 +587,110 @@ def list_sources():
     return output_value(app, [{'source_file': k, 'chunks_count': v} for k, v in sources.items()])
 
 
+@app.post('/api/retrieval/collections')
+def create_retrieval_collection(req: CollectionRequest):
+    try:
+        return app.state.vector_store.create_collection(
+            req.collection_id,
+            name=req.name,
+            embedding_model=req.embedding_model,
+            chunk_size=req.chunk_size,
+            chunk_overlap=req.chunk_overlap,
+            similarity_metric=req.similarity_metric,
+            relevance_threshold=req.relevance_threshold,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.get('/api/retrieval/collections')
+def list_retrieval_collections():
+    return output_value(app, app.state.vector_store.list_collections())
+
+
+@app.get('/api/retrieval/collections/{collection_id}')
+def get_retrieval_collection(collection_id: str):
+    try:
+        return output_value(app, app.state.vector_store.get_collection(collection_id))
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.patch('/api/retrieval/collections/{collection_id}')
+def update_retrieval_collection(collection_id: str, req: CollectionUpdateRequest):
+    try:
+        updates = req.model_dump(exclude_none=True)
+        return app.state.vector_store.update_collection(collection_id, **updates)
+    except ValueError as error:
+        status = 404 if str(error).startswith('Unknown collection') else 422
+        raise HTTPException(status_code=status, detail=str(error)) from error
+
+
+@app.delete('/api/retrieval/collections/{collection_id}')
+def delete_retrieval_collection(collection_id: str):
+    try:
+        app.state.vector_store.delete_collection(collection_id)
+    except ValueError as error:
+        status = 404 if str(error).startswith('Unknown collection') else 422
+        raise HTTPException(status_code=status, detail=str(error)) from error
+    return {'status': 'deleted', 'collection_id': collection_id}
+
+
+@app.get('/api/retrieval/collections/{collection_id}/chunks')
+def list_retrieval_chunks(collection_id: str, source_file: Optional[str] = None):
+    try:
+        chunks = app.state.vector_store.get_all_for_collection(collection_id)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    if source_file is not None:
+        chunks = [chunk for chunk in chunks if chunk['source_file'] == source_file]
+    return output_value(app, chunks)
+
+
+@app.post('/api/retrieval/search')
+def search_retrieval(req: RetrievalSearchRequest):
+    if not req.query.strip():
+        raise HTTPException(status_code=422, detail='Query must not be empty.')
+    if req.top_k <= 0:
+        raise HTTPException(status_code=422, detail='top_k must be positive.')
+    try:
+        results = retrieve(
+            req.query,
+            app.state.vector_store,
+            top_k=req.top_k,
+            collection_id=req.collection_id,
+            threshold=req.threshold,
+            filters=req.filters,
+        )
+    except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=f'Embedding failed: {error}') from error
+    except ValueError as error:
+        status = 404 if str(error).startswith('Unknown collection') else 422
+        raise HTTPException(status_code=status, detail=str(error)) from error
+    return {
+        'collection_id': req.collection_id,
+        'query': req.query,
+        'results': output_value(app, results),
+        'accepted_count': len(results),
+    }
+
+
+def _configure_ingestion_collection(
+    collection_id: str,
+    embedding_model: Optional[str],
+    chunk_size: Optional[int],
+    chunk_overlap: Optional[int],
+) -> dict:
+    updates = {}
+    if embedding_model is not None:
+        updates['embedding_model'] = embedding_model
+    if chunk_size is not None:
+        updates['chunk_size'] = chunk_size
+    if chunk_overlap is not None:
+        updates['chunk_overlap'] = chunk_overlap
+    if updates:
+        return app.state.vector_store.update_collection(collection_id, **updates)
+    return app.state.vector_store.get_collection(collection_id)
 @app.delete('/api/retrieval/sources')
 def delete_source(source_file: str = Query(..., min_length=1, max_length=512)):
     removed = app.state.vector_store.delete_source(source_file)
@@ -549,6 +702,12 @@ def delete_source(source_file: str = Query(..., min_length=1, max_length=512)):
 @app.post('/api/retrieval/ingest')
 def ingest_documents(req: IngestRequest):
     try:
+        collection = _configure_ingestion_collection(
+            req.collection_id,
+            req.embedding_model,
+            req.chunk_size,
+            req.chunk_overlap,
+        )
         if req.directory:
             root = settings.workspace_dir
             if root is None:
@@ -558,19 +717,40 @@ def ingest_documents(req: IngestRequest):
                 raise HTTPException(status_code=403, detail='Directory is outside the workspace.')
             if not target.is_dir():
                 raise HTTPException(status_code=404, detail='Directory not found.')
-            count = ingest(str(target), app.state.vector_store, guardrails=app.state.guardrails)
-            return {'status': 'ingested', 'chunks_count': count, 'directory': req.directory}
+            count = ingest(
+                str(target),
+                app.state.vector_store,
+                guardrails=app.state.guardrails,
+                model=collection['embedding_model'],
+                chunk_size=collection['chunk_size'],
+                chunk_overlap=collection['chunk_overlap'],
+                collection_id=req.collection_id,
+            )
+            return {
+                'status': 'ingested',
+                'chunks_count': count,
+                'directory': req.directory,
+                'collection_id': req.collection_id,
+            }
         elif req.content:
             content = input_value(app, req.content)
             filename = input_value(app, req.filename or 'uploaded.txt')
-            chunks = chunk_text(content)
+            chunks = chunk_text(
+                content,
+                chunk_size=collection['chunk_size'],
+                chunk_overlap=collection['chunk_overlap'],
+            )
             if not chunks:
                 return {'status': 'empty', 'chunks_count': 0}
             try:
-                vectors = embed([c['content'] for c in chunks])
-            except Exception:
-                from retrieval.rag import _deterministic_fallback_embed
-                vectors = [_deterministic_fallback_embed(c['content']) for c in chunks]
+                vectors = embed(
+                    [c['content'] for c in chunks],
+                    model=collection['embedding_model'],
+                )
+            except RuntimeError as error:
+                raise HTTPException(
+                    status_code=502, detail=f'Embedding failed: {error}'
+                ) from error
             for c, vec in zip(chunks, vectors):
                 app.state.vector_store.add(
                     source_file=filename,
@@ -578,8 +758,14 @@ def ingest_documents(req: IngestRequest):
                     end_line=c['end_line'],
                     content=c['content'],
                     embedding=vec,
+                    collection_id=req.collection_id,
                 )
-            return {'status': 'ingested', 'chunks_count': len(chunks), 'filename': filename}
+            return {
+                'status': 'ingested',
+                'chunks_count': len(chunks),
+                'filename': filename,
+                'collection_id': req.collection_id,
+            }
         else:
             raise HTTPException(status_code=422, detail='Must provide directory or content.')
     except HTTPException:
@@ -998,6 +1184,11 @@ def start_run(request: RunRequest):
         attachment=attachment,
         retrieval_store=app.state.vector_store,
         top_k=3,
+        retrieval_collection=app.state.retrieval_collection,
+        retrieval_rerank_model=settings.retrieval_rerank_model,
+        retrieval_rerank_threshold=settings.retrieval_rerank_threshold,
+        retrieval_rerank_top_n=settings.retrieval_rerank_top_n,
+        retrieval_filters=request.retrieval_filters,
         file_enabled=(app.state.workspace_writer is not None),
         guardrails=policy,
     )
@@ -1046,7 +1237,12 @@ def start_run(request: RunRequest):
         'retrieved_results': retrieved_results,
         'formatted_context': formatted_context,
         'cache_context_independent': (
-            attachment is None
+            # Search evidence is appended later in the streaming path, so make
+            # eligibility explicit here rather than relying on message shape.
+            # A vector store is always available in the web app; only retrieved
+            # results make this particular turn context-dependent.
+            effective_mode == 'ollama'
+            and attachment is None
             and not retrieved_results
             and not file_write
             and not temporary

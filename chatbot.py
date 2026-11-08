@@ -3,7 +3,9 @@
 import argparse
 import asyncio
 import json
+import logging
 import math
+import os
 import sys
 import sqlite3
 from pathlib import Path
@@ -15,7 +17,7 @@ from file_access.reader import FileAccessError, WorkspaceReader
 from file_access.writer import WorkspaceWriter
 from file_access.policy import FilePolicy
 from persona.registry import PersonaError, load_personas, persona_prompt
-from retrieval.rag import retrieve, format_context
+from retrieval.rag import retrieve_advanced
 from session import DatabaseError, build_system_message, SessionStore
 from structured.output import JsonOutput, StructuredOutputError
 from structured.results import ResultError, ResultStore
@@ -30,6 +32,8 @@ from core.chat import (
     FILE_CONTEXT_RULE,
     assemble_turn,
     execute_turn_stream,
+    inject_retrieved_context,
+    get_semantic_cache,
     make_system_message,
     persist_turn,
     stream_reply,
@@ -114,7 +118,10 @@ def print_profile_context(session_store, session, user_id="default"):
 
 def run_chat(model, system_prompt, host, timeout, personas=None, active=None,
              json_output=None, json_attempts=2, file_reader=None, store=None,
-             session_store=None, retrieval_model='nomic-embed-text', top_k=3,
+             session_store=None, retrieval_model=None, top_k=3,
+             retrieval_collection='default',
+             retrieval_rerank_model='qwen3:0.6b', retrieval_rerank_threshold=3.0,
+             retrieval_rerank_top_n=10, retrieval_filters=None,
              guardrails=None, searcher=None, structured_store=None,
              mcp_servers=None, mcp_max_calls=4):
     personas = personas or {}
@@ -160,7 +167,7 @@ def run_chat(model, system_prompt, host, timeout, personas=None, active=None,
         f'Sensai | model: {model} | persona: {active or "none"} '
         f'| session: {session_label} '
         f'| /exit to quit, /clear to reset, /persona to switch, '
-        f'/session for sessions'
+        f'/session for sessions | /cache stats|clear'
     )
     if json_output is not None:
         print('JSON mode: responses are displayed only after schema validation.')
@@ -182,6 +189,24 @@ def run_chat(model, system_prompt, host, timeout, personas=None, active=None,
             return 0
         if user_text == '/exit':
             return 0
+        if user_text == '/cache' or user_text.startswith('/cache '):
+            cache_command = user_text[len('/cache'):].strip() or 'stats'
+            if cache_command not in ('stats', 'clear'):
+                print('Usage: /cache stats|clear')
+                continue
+            try:
+                cache = get_semantic_cache(host)
+                if cache is None:
+                    print('Semantic cache is disabled.')
+                elif cache_command == 'clear':
+                    cache.clear()
+                    print('Semantic cache cleared.')
+                else:
+                    details = cache.stats()
+                    print('Semantic cache: {entries} entries, approximately {approximate_bytes} bytes.'.format(**details))
+            except Exception as error:
+                print(f'Semantic cache unavailable: {error}', file=sys.stderr)
+            continue
         if user_text == '/tools':
             if not mcp_servers:
                 print('MCP disabled. Restart with --mcp-config configs/mcp.demo.json.')
@@ -576,18 +601,44 @@ def run_chat(model, system_prompt, host, timeout, personas=None, active=None,
                 continue
         # Retrieval context is sent to the model only, never retained in history.
         to_send = pending
+        retrieval_completed = False
+        retrieved_results = None
         if store is not None:
             try:
-                results = retrieve(user_text, store, top_k=top_k, model=retrieval_model)
-                context = format_context(results)
-                if context:
-                    to_send = pending[:-1] + [
-                        {'role': 'system', 'content': context},
-                        pending[-1],
-                    ]
+                retrieved_results = retrieve_advanced(
+                    user_text,
+                    store,
+                    top_k=top_k,
+                    model=retrieval_model,
+                    base_url=host,
+                    rewrite_model=retrieval_rerank_model,
+                    rerank_model=retrieval_rerank_model,
+                    rejection_threshold=retrieval_rerank_threshold,
+                    rerank_top_n=retrieval_rerank_top_n,
+                    filters=retrieval_filters,
+                    collection_id=retrieval_collection,
+                    use_rewriting=False,
+                    use_reranking=True,
+                    strict_reranking=True,
+                )
+                retrieval_completed = True
+                to_send, _ = inject_retrieved_context(pending, retrieved_results)
             except Exception as error:
                 detail = 'request failed' if guardrails is not None else str(error)
                 print(f'\n[Retrieval unavailable: {detail}]', file=sys.stderr)
+        if store is not None and retrieval_completed and not retrieved_results:
+            answer = (
+                "I couldn't find relevant information in the indexed documents "
+                "to answer that question."
+            )
+            print('Sensai> ' + answer)
+            if session_store is not None and session is not None:
+                persist_turn(session_store, session['id'], content, answer)
+            history.append({'role': 'user', 'content': content})
+            history.append({'role': 'assistant', 'content': answer})
+            last_answer = answer
+            attachment = None
+            continue
         last_answer = None
         if mcp_requested:
             try:
@@ -628,9 +679,21 @@ def run_chat(model, system_prompt, host, timeout, personas=None, active=None,
         parts = []
         print('Sensai> ', end='', flush=True)
         try:
+            # Pass an explicit eligibility decision: context-dependent turns are
+            # never read from or written to the semantic cache.
+            cache_context_independent = (
+                store is None
+                and attachment is None
+                and web_page is None
+                and not mcp_requested
+                and guardrails is None
+                and json_output is None
+                and not any(item.get('role') in ('user', 'assistant') for item in history[1:])
+            )
             for chunk in execute_turn_stream(host, model, to_send, timeout, json_output,
                                              json_attempts, stream_func=stream_reply,
-                                             guardrails=guardrails):
+                                             guardrails=guardrails,
+                                             cache_context_independent=cache_context_independent):
                 print(chunk, end='', flush=True)
                 parts.append(chunk)
             if not ''.join(parts).strip():
@@ -665,7 +728,24 @@ def positive_timeout(value):
     return number
 
 
+def retrieval_filter(value):
+    if '=' not in value:
+        raise argparse.ArgumentTypeError('retrieval filters must use key=value')
+    key, filter_value = value.split('=', 1)
+    if not key.strip() or not filter_value.strip():
+        raise argparse.ArgumentTypeError('retrieval filters require non-empty key and value')
+    return key.strip(), filter_value.strip()
+
+
 def main():
+    # The web server configures logging itself.  The standalone CLI does not,
+    # so opt in to cache diagnostics through the conventional environment name.
+    log_level = os.environ.get('PYTHONLOGLEVEL')
+    if log_level:
+        logging.basicConfig(
+            level=getattr(logging, log_level.upper(), logging.INFO),
+            format='%(levelname)s %(name)s: %(message)s',
+        )
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--model', required=True, help='installed Ollama model name')
     parser.add_argument('--system-prompt', type=Path,
@@ -682,6 +762,15 @@ def main():
                         help='maximum MCP tool calls per turn (default: 4)')
     parser.add_argument('--docs-dir', type=Path, default=None,
                     help='directory of .txt/.md files to ingest for retrieval')
+    parser.add_argument('--rerank-model', default='qwen3:0.6b',
+                        help='Ollama model used to rerank retrieved chunks')
+    parser.add_argument('--rerank-threshold', type=float, default=3.0,
+                        help='minimum reranker score from 0 to 10 (default: 3)')
+    parser.add_argument('--rerank-top-n', type=int, default=10,
+                        help='maximum chunks sent to the reranker (default: 10)')
+    parser.add_argument('--retrieval-filter', action='append', type=retrieval_filter,
+                        metavar='KEY=VALUE',
+                        help='filter retrieved metadata; may be repeated')
     parser.add_argument('--timeout', type=positive_timeout, default=120,
                         help='read inactivity timeout in seconds (default: 120)')
     parser.add_argument('--persona', help='persona id to start with (see /persona)')
@@ -794,6 +883,10 @@ def main():
             session_store=session_store,
             guardrails=guardrails,
             searcher=searcher,
+            retrieval_rerank_model=args.rerank_model,
+            retrieval_rerank_threshold=args.rerank_threshold,
+            retrieval_rerank_top_n=args.rerank_top_n,
+            retrieval_filters=dict(args.retrieval_filter or []),
             mcp_servers=mcp_servers,
             mcp_max_calls=args.mcp_max_calls,
         )

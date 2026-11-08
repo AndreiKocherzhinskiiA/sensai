@@ -11,17 +11,24 @@ from retrieval.rerank import rerank
 DEFAULT_MODEL = "nomic-embed-text"
 SUPPORTED_EXTENSIONS = (".txt", ".md")
 
+def _collection_config(store: VectorStore, collection_id: str) -> dict:
+    """Load the single source of truth for collection retrieval settings."""
+    return store.get_collection(collection_id)
+
+
 def retrieve_advanced(query: str, store: VectorStore, top_k: int = 5,
-                       model: str = DEFAULT_MODEL,
-                       rewrite_model: str = "qwen3",
-                       rerank_model: str = "qwen3",
+                       model: str | None = None,
+                       rewrite_model: str = "qwen3:0.6b",
+                       rerank_model: str = "qwen3:0.6b",
                        base_url: str = "http://localhost:11434",
                        alpha: float = 0.5,
                        rerank_top_n: int = 10,
                        rejection_threshold: float = 3.0,
                        filters: dict | None = None,
                        use_rewriting: bool = True,
-                       use_reranking: bool = True) -> list[dict]:
+                       use_reranking: bool = True,
+                       strict_reranking: bool = True,
+                       collection_id: str = "default") -> list[dict]:
     """R2 advanced retrieval: query rewriting + hybrid search + reranking.
 
     Falls back gracefully: rewriting and reranking failures never crash
@@ -30,6 +37,9 @@ def retrieve_advanced(query: str, store: VectorStore, top_k: int = 5,
     if not query.strip():
         return []
 
+    collection = _collection_config(store, collection_id)
+    model = model or collection["embedding_model"]
+    threshold = collection["relevance_threshold"]
     queries = [query]
     if use_rewriting:
         queries = rewrite_query(query, model=rewrite_model, base_url=base_url)
@@ -41,8 +51,16 @@ def retrieve_advanced(query: str, store: VectorStore, top_k: int = 5,
     merged: dict[int, dict] = {}
     for q in queries:
         query_vector = embed([q], model=model)[0]
-        results = hybrid_search(q, query_vector, store, top_k=rerank_top_n,
-                                 alpha=alpha, filters=filters)
+        results = hybrid_search(
+            q,
+            query_vector,
+            store,
+            top_k=rerank_top_n,
+            alpha=alpha,
+            filters=filters,
+            collection_id=collection_id,
+            threshold=threshold,
+        )
         for r in results:
             existing = merged.get(r["id"])
             if existing is None or r["score"] > existing["score"]:
@@ -51,14 +69,18 @@ def retrieve_advanced(query: str, store: VectorStore, top_k: int = 5,
     combined = sorted(merged.values(), key=lambda r: r["score"], reverse=True)
 
     if use_reranking and combined:
-        combined = rerank(query, combined, model=rerank_model, base_url=base_url,
-                           top_n=rerank_top_n, rejection_threshold=rejection_threshold)
+        combined = rerank(
+            query, combined, model=rerank_model, base_url=base_url,
+            top_n=rerank_top_n, rejection_threshold=rejection_threshold,
+            strict=strict_reranking,
+        )
 
     return combined[:top_k]
 
 
-def ingest(directory: str, store: VectorStore, model: str = DEFAULT_MODEL,
-           chunk_size: int = 20, chunk_overlap: int = 5, guardrails=None) -> int:
+def ingest(directory: str, store: VectorStore, model: str | None = None,
+           chunk_size: int | None = None, chunk_overlap: int | None = None,
+           guardrails=None, collection_id: str = "default") -> int:
     """Read supported files from a directory, chunk them, embed them, and store them.
 
     Returns the number of chunks ingested.
@@ -66,6 +88,10 @@ def ingest(directory: str, store: VectorStore, model: str = DEFAULT_MODEL,
     if not os.path.isdir(directory):
         raise ValueError(f"Not a directory: {directory}")
 
+    collection = _collection_config(store, collection_id)
+    model = model or collection["embedding_model"]
+    chunk_size = collection["chunk_size"] if chunk_size is None else chunk_size
+    chunk_overlap = collection["chunk_overlap"] if chunk_overlap is None else chunk_overlap
     total_chunks = 0
 
     for filename in sorted(os.listdir(directory)):
@@ -94,6 +120,7 @@ def ingest(directory: str, store: VectorStore, model: str = DEFAULT_MODEL,
                 end_line=chunk["end_line"],
                 content=chunk["content"],
                 embedding=vector,
+                collection_id=collection_id,
             )
             total_chunks += 1
 
@@ -101,13 +128,22 @@ def ingest(directory: str, store: VectorStore, model: str = DEFAULT_MODEL,
 
 
 def retrieve(query: str, store: VectorStore, top_k: int = 5,
-             model: str = DEFAULT_MODEL) -> list[dict]:
+             model: str | None = None, collection_id: str = "default",
+             threshold: float | None = None,
+             filters: dict | None = None) -> list[dict]:
     """Embed a query and return the top_k most relevant chunks."""
     if not query.strip():
         return []
 
-    query_vector = embed([query], model=model)[0]
-    return store.search(query_vector, top_k=top_k)
+    collection = _collection_config(store, collection_id)
+    query_vector = embed([query], model=model or collection["embedding_model"])[0]
+    return store.search(
+        query_vector,
+        top_k=top_k,
+        collection_id=collection_id,
+        threshold=collection["relevance_threshold"] if threshold is None else threshold,
+        filters=filters,
+    )
 
 
 def format_context(results: list[dict]) -> str:

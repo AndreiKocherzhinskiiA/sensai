@@ -24,6 +24,20 @@ class Settings:
     artifacts_db: Path = _get_env_path('SENSAI_ARTIFACTS_DB', 'sensai_artifacts.db')
     snapshots_db: Path = _get_env_path('SENSAI_SNAPSHOTS_DB', 'sensai_snapshots.db')
     workspace_dir: Optional[Path] = Path(os.getenv('SENSAI_WORKSPACE')).resolve() if os.getenv('SENSAI_WORKSPACE') else None
+    retrieval_collection: str = os.getenv('SENSAI_RETRIEVAL_COLLECTION', 'default')
+    retrieval_model: str = os.getenv('SENSAI_EMBEDDING_MODEL', 'nomic-embed-text')
+    retrieval_chunk_size: int = int(os.getenv('SENSAI_CHUNK_SIZE', '20'))
+    retrieval_chunk_overlap: int = int(os.getenv('SENSAI_CHUNK_OVERLAP', '5'))
+    retrieval_top_k: int = int(os.getenv('SENSAI_RETRIEVAL_TOP_K', '5'))
+    retrieval_rerank_model: str = os.getenv('SENSAI_RERANK_MODEL', 'qwen3:0.6b')
+    retrieval_rerank_threshold: float = float(os.getenv('SENSAI_RERANK_THRESHOLD', '3.0'))
+    retrieval_rerank_top_n: int = int(os.getenv('SENSAI_RERANK_TOP_N', '10'))
+    retrieval_rewrite_model: str = os.getenv('SENSAI_REWRITE_MODEL', 'qwen3:0.6b')
+    semantic_cache_enabled: bool = os.getenv('SENSAI_SEMANTIC_CACHE_ENABLED', 'true').lower() in ('1', 'true', 'yes', 'on')
+    semantic_cache_db: Path = _get_env_path('SENSAI_SEMANTIC_CACHE_DB', 'retrieval/semantic_cache.sqlite3')
+    semantic_cache_threshold: float = float(os.getenv('SENSAI_SEMANTIC_CACHE_THRESHOLD', '0.92'))
+    semantic_cache_embedding_model: str = os.getenv('SENSAI_SEMANTIC_CACHE_EMBEDDING_MODEL', 'nomic-embed-text')
+    semantic_cache_max_age_seconds: Optional[float] = (float(os.environ['SENSAI_SEMANTIC_CACHE_MAX_AGE_SECONDS']) if os.getenv('SENSAI_SEMANTIC_CACHE_MAX_AGE_SECONDS') else None)
 
     @property
     def clean_ollama_host(self) -> str:

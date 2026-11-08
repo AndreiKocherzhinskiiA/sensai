@@ -47,5 +47,15 @@ def embed(texts: list[str], model: str = "nomic-embed-text",
     embeddings = data.get("embeddings")
     if embeddings is None:
         raise RuntimeError(f"Unexpected Ollama response, no 'embeddings' field: {data}")
+    if not isinstance(embeddings, list) or len(embeddings) != len(texts):
+        raise RuntimeError(
+            "Ollama returned an embedding count that does not match the input count."
+        )
+    if any(
+        not isinstance(vector, list) or not vector or
+        any(not isinstance(value, (int, float)) for value in vector)
+        for vector in embeddings
+    ):
+        raise RuntimeError("Ollama returned an invalid embedding vector.")
 
     return embeddings

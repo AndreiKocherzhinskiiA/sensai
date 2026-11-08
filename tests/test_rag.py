@@ -51,6 +51,33 @@ class RetrieveAdvancedTests(unittest.TestCase):
         self.assertGreater(len(results), 0)
         self.assertEqual(results[0]["source_file"], "cats.md")
 
+    @patch("retrieval.rag.embed", side_effect=lambda texts, model=None: [
+        [1.0, 0.0, 0.0] if "cats" in text.lower() else [0.0, 1.0, 0.0]
+        for text in texts
+    ])
+    def test_collection_threshold_rejects_irrelevant_results(self, mock_embed):
+        self.store.update_collection("default", relevance_threshold=0.9)
+
+        results = retrieve_advanced(
+            "cats",
+            self.store,
+            top_k=5,
+            use_rewriting=False,
+            use_reranking=False,
+        )
+
+        self.assertEqual([result["source_file"] for result in results], ["cats.md"])
+
+    @patch("retrieval.rag.embed", side_effect=lambda texts, model=None: [
+        [1.0, 0.0, 0.0] for _ in texts
+    ])
+    def test_threshold_accepts_boundary_similarity(self, mock_embed):
+        self.store.update_collection("default", relevance_threshold=1.0)
+
+        results = retrieve("cats", self.store, top_k=5)
+
+        self.assertEqual([result["source_file"] for result in results], ["cats.md"])
+
     @patch("retrieval.rag.rerank", side_effect=lambda query, results, **kw: results)
     @patch("retrieval.rag.rewrite_query", side_effect=lambda q, **kw: [q, "feline info"])
     @patch("retrieval.rag.embed", side_effect=lambda texts, model=None: [
@@ -111,6 +138,24 @@ class RagTests(unittest.TestCase):
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["source_file"], "cats.md")
+
+    @patch("retrieval.rag.embed", side_effect=fake_embed)
+    def test_ingest_uses_collection_configuration(self, mock_embed):
+        self.store.create_collection(
+            "configured",
+            embedding_model="configured-model",
+            chunk_size=2,
+            chunk_overlap=0,
+        )
+        self._write_file("notes.md", "one\ntwo\nthree")
+
+        count = ingest(self.tmpdir, self.store, collection_id="configured")
+
+        self.assertEqual(count, 2)
+        self.assertEqual(mock_embed.call_args.kwargs["model"], "configured-model")
+        chunks = self.store.get_all_for_collection("configured")
+        self.assertEqual([chunk["start_line"] for chunk in chunks], [1, 3])
+        self.assertEqual(self.store.get_all(), [])
 
     @patch("retrieval.rag.embed", side_effect=fake_embed)
     def test_retrieve_empty_query_returns_empty(self, mock_embed):
