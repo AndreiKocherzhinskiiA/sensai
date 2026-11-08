@@ -1,0 +1,7 @@
+{
+  "rewrites": [
+    { "source": "/p/:id", "destination": "/api/view?id=:id" },
+    { "source": "/p/:id/export", "destination": "/api/view?id=:id" },
+    { "source": "/", "destination": "/api/view?home=1" }
+  ]
+}

@@ -79,6 +79,9 @@ class SessionStore:
         try:
             with self._connect() as conn:
                 conn.executescript(SCHEMA)
+                columns = {row["name"] for row in conn.execute("PRAGMA table_info(sessions)")}
+                if "pinned" not in columns:
+                    conn.execute("ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
         except sqlite3.DatabaseError as exc:
             raise DatabaseError(
                 f"Database is corrupted or unreadable: {self.db_path}"
@@ -137,6 +140,14 @@ class SessionStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def set_session_pinned(self, session_id: str, pinned: bool) -> dict | None:
+        with self._transaction() as conn:
+            conn.execute(
+                "UPDATE sessions SET pinned = ? WHERE id = ?",
+                (1 if pinned else 0, session_id),
+            )
+        return self.get_session(session_id)
+
     def rename_session(self, session_id: str, title: str) -> dict | None:
         with self._transaction() as conn:
             conn.execute(
@@ -178,13 +189,28 @@ class SessionStore:
             ).fetchone()
         return row["persona_id"] if row else None
 
-    def clear_session_messages(self, session_id: str) -> None:
+    def clear_session_messages(self, session_id: str) -> int:
         now = time.time()
         with self._transaction() as conn:
             if not conn.execute("SELECT 1 FROM sessions WHERE id = ?", (session_id,)).fetchone():
                 raise ValueError(f"Unknown session: {session_id}")
+            removed = conn.execute(
+                "DELETE FROM messages WHERE session_id = ?", (session_id,)
+            ).rowcount
+            conn.execute(
+                "UPDATE sessions SET title = 'New session', updated_at = ? WHERE id = ?",
+                (now, session_id),
+            )
+        return removed
+
+    def delete_session(self, session_id: str) -> bool:
+        with self._transaction() as conn:
             conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
-            conn.execute("UPDATE sessions SET updated_at = ? WHERE id = ?", (now, session_id))
+            conn.execute("DELETE FROM session_personas WHERE session_id = ?", (session_id,))
+            conn.execute("DELETE FROM active_session WHERE session_id = ?", (session_id,))
+            return conn.execute(
+                "DELETE FROM sessions WHERE id = ?", (session_id,)
+            ).rowcount > 0
 
     def add_message(
         self,
@@ -215,6 +241,16 @@ class SessionStore:
                 "UPDATE sessions SET updated_at = ? WHERE id = ?",
                 (now, session_id),
             )
+            if role == "user":
+                title = " ".join(content.split())
+                if len(title) > 48:
+                    title = title[:47].rstrip() + "..."
+                if title:
+                    conn.execute(
+                        "UPDATE sessions SET title = ? "
+                        "WHERE id = ? AND title = 'New session'",
+                        (title, session_id),
+                    )
 
         return {
             "session_id": session_id,

@@ -1,0 +1,25 @@
+{
+  "extensions": [
+    ".txt",
+    ".md",
+    ".py",
+    ".json"
+  ],
+  "max_bytes": 16384,
+  "allow_create": true,
+  "permissions": {
+    "read": [
+      "."
+    ],
+    "create": [
+      "."
+    ],
+    "write": [
+      "reports/"
+    ],
+    "deny": [
+      "private/",
+      "reports/protected.md"
+    ]
+  }
+}

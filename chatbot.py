@@ -15,6 +15,7 @@ import requests
 
 from file_access.reader import FileAccessError, WorkspaceReader
 from file_access.writer import WorkspaceWriter
+from file_access.policy import FilePolicy
 from persona.registry import PersonaError, load_personas, persona_prompt
 from retrieval.rag import retrieve_advanced
 from session import DatabaseError, build_system_message, SessionStore
@@ -781,11 +782,15 @@ def main():
                         help='total generation attempts per JSON answer (default: 2)')
     parser.add_argument('--workspace', type=Path,
                         help='allow /read beneath this directory (read-only, Linux/WSL)')
+    parser.add_argument('--file-policy', type=Path,
+                        help='operator file/directory permission policy; requires --workspace')
     parser.add_argument('--allow-create', action='store_true',
                         help='enable /save of new files after confirmation; requires --workspace')
     args = parser.parse_args()
     if not args.model.strip():
         parser.error('--model cannot be empty')
+    if args.file_policy and args.workspace is None:
+        parser.error('--file-policy requires --workspace')
     if args.allow_create and args.workspace is None:
         parser.error('--allow-create requires --workspace')
     try:
@@ -855,9 +860,12 @@ def main():
         print(f'Cannot open session database: {error}', file=sys.stderr)
         return 1
     try:
-        access_class = WorkspaceWriter if args.allow_create else WorkspaceReader
-        reader = access_class(args.workspace) if args.workspace is not None else None
-    except FileAccessError as error:
+        file_policy = FilePolicy.from_file(args.file_policy) if args.file_policy else FilePolicy(allow_create=args.allow_create)
+        if args.file_policy and args.allow_create and not file_policy.can_create:
+            raise FileAccessError('--allow-create cannot override the file policy.')
+        access_class = WorkspaceWriter if file_policy.can_create or file_policy.can_write else WorkspaceReader
+        reader = access_class(args.workspace, file_policy) if args.workspace is not None else None
+    except (FileAccessError, OSError, ValueError) as error:
         print(f'Cannot configure workspace: {error}', file=sys.stderr)
         return 1
     try:

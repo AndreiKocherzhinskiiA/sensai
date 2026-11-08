@@ -35,6 +35,7 @@ class Gateway:
         self.tools = {}
         self.policy = policy
         self.failed_servers = set()
+        self.protocol_events = []
 
     def prepare(self, name, arguments):
         tool = self.tools.get(name)
@@ -68,6 +69,8 @@ class Gateway:
         except Exception as error:
             self.failed_servers.add(tool.server.name)
             raise McpError('MCP call failed or timed out; execution outcome may be unknown.') from error
+        self.protocol_events.append({'server': tool.server.name, 'method': 'tools/call',
+                                     'tool': tool.remote_name, 'is_error': result.isError})
         # No resource fetching, images, or executable content is handled implicitly.
         if any(block.type != 'text' for block in result.content):
             raise McpError('Only text and structured MCP results are supported.')
@@ -99,10 +102,16 @@ async def connect(servers, policy=None):
                 read, write = await stack.enter_async_context(stdio_client(params, errlog=errors))
                 session = await stack.enter_async_context(ClientSession(
                     read, write, read_timeout_seconds=timedelta(seconds=server.timeout)))
-                await asyncio.wait_for(session.initialize(), server.timeout)
+                initialized = await asyncio.wait_for(session.initialize(), server.timeout)
+                gateway.protocol_events.append({'server': server.name, 'method': 'initialize',
+                    'protocol_version': initialized.protocolVersion,
+                    'server_info': initialized.serverInfo.model_dump(mode='json'),
+                    'capabilities': initialized.capabilities.model_dump(mode='json', exclude_none=True)})
                 cursor, seen_cursors, discovered = None, set(), set()
                 for _ in range(8):
                     page = await asyncio.wait_for(session.list_tools(cursor=cursor), server.timeout)
+                    gateway.protocol_events.append({'server': server.name, 'method': 'tools/list',
+                        'tools': [item.name for item in page.tools]})
                     for item in page.tools:
                         if item.name in discovered or len(discovered) >= 64:
                             raise McpError('Duplicate tools or excessive MCP catalogue.')
