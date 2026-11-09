@@ -29,6 +29,8 @@ class McpWebTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.directory.cleanup)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(patch('mcp_tools.runner.review_execution',AsyncMock(return_value={
+            'status':'succeeded','observation':'Controlled successful operation'})))
         root = Path(self.directory.name)
         # Importing the web app must never open the user's databases.
         with ExitStack() as initial:
@@ -82,7 +84,7 @@ class McpWebTests(unittest.IsolatedAsyncioTestCase):
                  patch('mcp_tools.runner.plan_workflow',AsyncMock(return_value=[
                      {'tool':'project__write_project_file','goal':'Update the report'}])), \
                  patch('mcp_tools.runner.request_action',AsyncMock(return_value=self.call('project__write_project_file',arguments))), \
-                 patch('mcp_tools.runner.request_message',AsyncMock(return_value={'role':'assistant','content':'Updated report.'})):
+                 patch('mcp_tools.runner.request_message',AsyncMock(return_value={'role':'assistant','content':'{"answer": "Updated report.", "checks": [{"requirement": "Requested information or operation", "observed": "Updated report.", "met": true}]}'})):
                 run=await self.start(mode='ollama',message='Update the report')
                 task,queue=await self.stream(run)
                 approval=await self.next_event(queue,'approval_request')
@@ -150,7 +152,7 @@ class McpWebTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(settings, 'check_ollama_alive', return_value=True), \
              patch.object(runner, 'plan_workflow', AsyncMock(return_value=[{'tool':'project__read_project_file','goal':'Read notes'}])) as planner, \
              patch.object(runner, 'request_action', AsyncMock(return_value=self.call())), \
-             patch.object(runner, 'request_message', AsyncMock(return_value={'role':'assistant','content':'Python and SQLite'})), \
+             patch.object(runner, 'request_message', AsyncMock(return_value={'role':'assistant','content':'{"answer": "Python and SQLite", "checks": [{"requirement": "Requested information or operation", "observed": "Python and SQLite", "met": true}]}'})), \
              patch.object(self.web, 'execute_turn_stream') as ordinary:
             run = await self.start(mode='ollama', message='What language is used in project_notes.md?')
             self.assertEqual(self.web.app.state.runs[run['run_id']]['mode'], 'ollama')
