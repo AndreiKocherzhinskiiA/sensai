@@ -72,3 +72,16 @@ test('MCP approval from a finished run cannot be submitted', async () => {
   await ui.buttons('Approve')[0].listeners.click();
   assert.equal(ui.requests.length, 0);
 });
+
+
+for (const approved of [true, false]) {
+  test(`memory ${approved ? 'approval' : 'rejection'} uses its independent endpoint`, async () => {
+    const ui = chat({kind: 'memory', action: 'create', arguments: {subject: 'Aurora'},
+      approval_id: 'memory-token', timeout_seconds: 120});
+    assert.equal(ui.buttons('Approve').length, 1);
+    assert.equal(ui.buttons('Reject').length, 1);
+    await ui.buttons(approved ? 'Approve' : 'Reject')[0].listeners.click();
+    assert.deepEqual(ui.requests, [{url: '/api/runs/run-1/memory/decision',
+      body: {approval_id: 'memory-token', approved}}]);
+  });
+}
