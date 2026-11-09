@@ -1069,14 +1069,18 @@ def run_feature_pipeline(user_text: str, pending_messages: List[Dict[str, str]])
     return cleaned_text, pending_messages
 
 
-def previous_search_reply(history, message):
+def previous_chat_reply(history, message, *, reuse_search):
     if len(history) < 2:
         return None
     user, assistant = history[-2:]
     if user['role'] != 'user' or assistant['role'] != 'assistant':
         return None
     question, separator, raw = user['content'].partition(MCP_OBSERVATIONS)
-    if not separator or question != message or not assistant['content'].strip():
+    if question != message or not assistant['content'].strip():
+        return None
+    if not separator:
+        return assistant['content'], None, user['content']
+    if not reuse_search:
         return None
     try:
         evidence = json.loads(raw)
@@ -1333,8 +1337,9 @@ def start_run(request: RunRequest):
         'approval_plan': None,
         'approval_decision': None,
         'automatic_tools': automatic_tools,
-        'previous_search_reply': previous_search_reply(saved_history, message) if (
-            automatic_tools and not temporary and attachment is None and not retrieved_results
+        'previous_chat_reply': previous_chat_reply(saved_history, message, reuse_search=automatic_tools) if (
+            effective_mode == 'ollama' and target_schema is None and not file_write and not temporary
+            and attachment is None and not retrieved_results and user_content == message
             and not request.file_read and not request.retrieval_filters
         ) else None,
         'memory_enabled': request.memory_enabled and memory_available() and not temporary and effective_mode != 'stub',
@@ -1524,18 +1529,20 @@ async def generate_events(run: Dict[str, Any]):
                 return
 
         tools_answered = False
-        previous = run.get('previous_search_reply')
+        previous = run.get('previous_chat_reply') if run.get('cache_context_independent') else None
         if previous:
             answer, record, user_content = previous
             if policy:
                 user_content = policy.check_input(user_content)
                 answer = policy.output(answer)
-                record = policy.json_output(policy.json_input(record))
-            page = record['result']['structuredContent']
-            yield to_sse(stream.emit('tool_result', kind='search', tool='web_search',
-                fetched_at=page['fetched_at'],
-                sources=[{**source, 'id': index} for index, source in enumerate(page['results'], 1)],
-                warnings=['Reused results from the previous turn in this chat.']))
+                if record is not None:
+                    record = policy.json_output(policy.json_input(record))
+            if record is not None:
+                page = record['result']['structuredContent']
+                yield to_sse(stream.emit('tool_result', kind='search', tool='web_search',
+                    fetched_at=page['fetched_at'],
+                    sources=[{**source, 'id': index} for index, source in enumerate(page['results'], 1)],
+                    warnings=['Reused results from the previous turn in this chat.']))
             tools_answered = True
             parts.append(answer)
             yield to_sse(stream.emit('text_delta', text=answer))
