@@ -35,11 +35,11 @@ class ConfigTests(unittest.TestCase):
         row = {'name': 'demo', 'command': '$PYTHON', 'args': [], 'allow_tools': ['read']}
         cases = [
             {'servers': [dict(row, auto_approve=['write'])]},
-            {'servers': [dict(row, env={'SECRET': 'value'})]},
+            {'servers': [dict(row, env={'INVALID': 123})]},
             {'servers': [dict(row, timeout=True)]},
             {'servers': [dict(row, timeout=0)]},
             {'servers': [dict(row, name='bad/name')]},
-            {'servers': [dict(row, allow_tools=[])]},
+            {'servers': [dict(row, allow_tools=['bad/name'])]},
             {'servers': [dict(row, args='shell command')]},
             {'servers': [row, row]},
         ]

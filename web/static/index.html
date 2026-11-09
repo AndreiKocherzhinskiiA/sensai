@@ -448,8 +448,8 @@
       border: 0; background: transparent; color: var(--ink); outline: none; height: 100%;
       width: 7.5rem; padding: 0 .75rem 0 .1rem; font: 500 .82rem var(--mono); cursor: text;
     }
-    #tools-toggle { padding-right: .75rem; }
-    #tools-enabled { width: 16px; height: 16px; padding: 0; cursor: pointer; accent-color: var(--acc); }
+    #tools-toggle, #memory-toggle { padding-right: .75rem; }
+    #tools-enabled, #memory-enabled { width: 16px; height: 16px; padding: 0; cursor: pointer; accent-color: var(--acc); }
     #tools-toggle[hidden] { display: none; }
     .chip.persona { border-color: var(--acc-edge); background: var(--acc-wash); color: var(--acc-text); }
     .chip.persona .dd-btn { max-width: 13rem; }
@@ -1170,6 +1170,7 @@
       </label>
       <span class="grow"></span>
       <label class="chip" id="tools-toggle" hidden><input id="tools-enabled" type="checkbox" checked>Allow tools</label>
+      <label class="chip" id="memory-toggle" title="Use saved facts across chats. Changes require approval. Not used in temporary chats."><input id="memory-enabled" type="checkbox" checked>Memory</label>
       <button id="mcp-tools" class="btn" type="button" disabled>Tools</button>
       <button id="documents-btn" class="btn" type="button" aria-expanded="false" aria-controls="documents-panel">Documents</button>
       <button id="share-btn" class="btn" type="button" title="Publish a public snapshot of this chat">
@@ -1543,21 +1544,10 @@
         modeDD.render();
         updateSearchStatus();
       }
-      mcpTools.disabled = !info.enabled;
-      mcpTools.title = info.enabled ? 'List available tools and approval rules' : 'Start the server with SENSAI_MCP_CONFIG to enable MCP';
+      mcpTools.disabled = !info.management_enabled;
+      mcpTools.title = 'Manage MCP servers, connections and tool schemas';
     }).catch(() => { mcpTools.title = 'Could not check MCP configuration'; });
-    mcpTools.addEventListener('click', async () => {
-      mcpTools.disabled = true;
-      try {
-        const response = await fetch('/api/mcp/tools');
-        const data = await response.json();
-        if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Tool discovery failed');
-        const listing = addLine('sys-note', data.map(t => t.name + ' · ' + (t.approval === 'ask' ? 'approval required' : 'automatic') + '\n' + t.description).join('\n\n'));
-        listing.style.whiteSpace = 'pre-wrap';
-        listing.style.textAlign = 'left';
-      } catch (error) { addLine('error', error.message); }
-      finally { mcpTools.disabled = false; }
-    });
+    mcpTools.addEventListener('click', () => window.dispatchEvent(new Event('mcp:open')));
 
     const modelHost = modelInput.parentElement;
     const modelBtn = document.createElement('button');
@@ -2838,7 +2828,6 @@
       currentRunId = null;
       refreshSessions();
       document.querySelector('.msg.assistant.streaming, .msg.assistant.waiting')?.classList.remove('streaming', 'waiting');
-      void updateSessionListSafely();
     }
 
     cancel.addEventListener('click', async () => {
@@ -2961,6 +2950,7 @@
             model: modelInput.value,
             python_code: pythonCode,
             tools_enabled: document.getElementById('tools-enabled').checked,
+            memory_enabled: !temporary && document.getElementById('memory-enabled').checked,
             ...(fileWrite ? { file_write: fileWrite } : {}),
             ...(pendingFile ? {file_read: pendingFile} : {}),
           }),
@@ -3009,6 +2999,10 @@
       currentSource.addEventListener('loop_done', e => {
         const data = JSON.parse(e.data).payload;
         if (data.kind === 'react') toolCard('ReAct completed', data, true);
+      });
+      currentSource.addEventListener('loop_step', e => {
+        const data = JSON.parse(e.data).payload;
+        if (data.kind === 'mcp') toolCard('MCP · ' + data.phase, data);
       });
       currentSource.addEventListener('tool_call', e => {
         const data = JSON.parse(e.data).payload;
@@ -3064,6 +3058,17 @@
           setStatus(data.sources.length ? 'Sources received · preparing answer' : 'No search results', 'busy');
           return;
         }
+        if (data.kind === 'memory') {
+          const labels = {previous_chat: 'Memory · previous conversation', read: 'Memory · retrieved facts', create: 'Memory · saved', update: 'Memory · updated', delete: 'Memory · deleted'};
+          const memoryCard = toolCard(labels[data.action] || 'Memory', data.result);
+          if (data.action === 'previous_chat') {
+            const source = data.result.conversation;
+            memoryCard.appendChild(el('p', null, source ? 'Source: ' + source.title : 'No saved conversation available.'));
+            if (data.result.truncated) memoryCard.appendChild(el('p', null, 'Only an excerpt was supplied to the assistant.'));
+          }
+          setStatus('Memory checked · preparing answer', 'busy');
+          return;
+        }
         if (data.kind !== 'mcp') return;
         const card = toolCard((data.result.isError ? 'Tool error · ' : 'Result · ') + data.tool, data.result, data.result.isError);
         if (data.result.isError) card.appendChild(el('p', null, 'This tool failed. A model answer claiming success is not proof that the action worked.'));
@@ -3071,8 +3076,14 @@
       });
       currentSource.addEventListener('approval_request', e => {
         const data = JSON.parse(e.data).payload;
-        if (data.kind !== 'mcp') return;
-        const card = toolCard('Allow ' + data.tool + '?', data.arguments, true);
+        // File plans and MCP calls have different approval tokens and endpoints.
+        // Route each event once so a tool call cannot become a file-write approval.
+        if (!['mcp', 'memory'].includes(data.kind)) {
+          if (!data.kind && data.action === 'write' && data.plan_id) addApproval(runId, data);
+          return;
+        }
+        const memoryTitles = {create: 'Save this memory?', update: 'Update this memory?', delete: 'Delete this memory?'};
+        const card = toolCard(data.kind === 'memory' ? memoryTitles[data.action] : 'Allow ' + data.tool + '?', data.arguments, true);
         const note = el('p', null, 'Approve this call only. Expires in ' + data.timeout_seconds + ' seconds. Reject ends this turn.');
         const approve = el('button', 'btn', 'Approve');
         const reject = el('button', 'btn', 'Reject');
@@ -3083,7 +3094,7 @@
           if (currentRunId !== runId) return;
           approve.disabled = reject.disabled = true;
           try {
-            const response = await fetch('/api/runs/' + runId + '/mcp/decision', {
+            const response = await fetch('/api/runs/' + runId + '/' + data.kind + '/decision', {
               method: 'POST', headers: {'Content-Type': 'application/json'},
               body: JSON.stringify({approval_id: data.approval_id, approved}),
             });
@@ -3165,11 +3176,6 @@
         }
         setRaw(reply, (reply._raw || '') + JSON.parse(e.data).payload.text);
         scrollDown();
-      });
-
-      currentSource.addEventListener('approval_request', (e) => {
-        const ev = JSON.parse(e.data);
-        addApproval(ev.run_id || runId, ev.payload);
       });
 
       currentSource.addEventListener('tool_result', (e) => {
@@ -3821,6 +3827,19 @@
     })();
 
     input.focus();
+  </script>
+<script src="/static/mcp_connections.js"></script>
+  <script>
+    (() => {
+      const checkbox = document.getElementById('memory-enabled');
+      try { checkbox.checked = localStorage.getItem('sensai_memory_enabled') !== 'false'; } catch {}
+      checkbox.addEventListener('change', () => {
+        try { localStorage.setItem('sensai_memory_enabled', String(checkbox.checked)); } catch {}
+      });
+      fetch('/api/memory').then(r => r.json()).then(status => {
+        if (!status.enabled) { checkbox.checked = false; checkbox.disabled = true; }
+      }).catch(() => { checkbox.checked = false; checkbox.disabled = true; });
+    })();
   </script>
 </body>
 </html>

@@ -1,17 +1,22 @@
-"""Real MCP initialize/tools.list/tools.call over stdio using the official SDK."""
+"""MCP initialize/tools/list/tools/call over stdio or Streamable HTTP."""
 import asyncio
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 import json
 import os
+import hashlib
+import re
+import httpx
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.client.streamable_http import streamable_http_client
 
 from guardrails import GuardrailError
 from structured.output import JsonOutput, StructuredOutputError
-from .config import McpError, NAME
+from .config import McpError, TOOL_NAME
+from .schema import inline_tool_schema
 
 
 @dataclass
@@ -33,6 +38,8 @@ class Tool:
 class Gateway:
     def __init__(self, policy=None):
         self.tools = {}
+        self.catalog = {}
+        self.server_guidance = {}
         self.policy = policy
         self.failed_servers = set()
         self.protocol_events = []
@@ -97,13 +104,27 @@ async def connect(servers, policy=None):
             # Child stderr is not displayed: it could contain unfiltered data/control codes.
             errors = stack.enter_context(open(os.devnull, 'w'))
             for server in servers:
-                params = StdioServerParameters(command=server.command, args=list(server.args),
-                                               cwd=server.cwd)
-                read, write = await stack.enter_async_context(stdio_client(params, errlog=errors))
+                if server.transport == 'stdio':
+                    params = StdioServerParameters(command=server.command, args=list(server.args),
+                                                   cwd=server.cwd, env=server.env or None)
+                    read, write = await stack.enter_async_context(stdio_client(params, errlog=errors))
+                else:
+                    client = await stack.enter_async_context(httpx.AsyncClient(
+                        headers=server.headers, timeout=httpx.Timeout(server.timeout, read=300)))
+                    read, write, _ = await stack.enter_async_context(
+                        streamable_http_client(server.url, http_client=client))
                 session = await stack.enter_async_context(ClientSession(
                     read, write, read_timeout_seconds=timedelta(seconds=server.timeout)))
                 initialized = await asyncio.wait_for(session.initialize(), server.timeout)
+                guidance = initialized.instructions or ''
+                if len(guidance.encode('utf-8')) > 8192:
+                    raise McpError('MCP server usage notes exceed 8 KiB.')
+                if guidance and policy:
+                    guidance = policy.output(policy.check_input(guidance))
+                if guidance:
+                    gateway.server_guidance[server.name] = guidance
                 gateway.protocol_events.append({'server': server.name, 'method': 'initialize',
+                    'instructions': guidance,
                     'protocol_version': initialized.protocolVersion,
                     'server_info': initialized.serverInfo.model_dump(mode='json'),
                     'capabilities': initialized.capabilities.model_dump(mode='json', exclude_none=True)})
@@ -113,25 +134,31 @@ async def connect(servers, policy=None):
                     gateway.protocol_events.append({'server': server.name, 'method': 'tools/list',
                         'tools': [item.name for item in page.tools]})
                     for item in page.tools:
-                        if item.name in discovered or len(discovered) >= 64:
+                        if item.name in discovered or len(discovered) >= 128:
                             raise McpError('Duplicate tools or excessive MCP catalogue.')
                         discovered.add(item.name)
-                        if item.name not in server.allow_tools:
-                            continue
-                        if not NAME.fullmatch(item.name):
+                        if not TOOL_NAME.fullmatch(item.name):
                             raise McpError('Unsupported MCP tool name.')
                         schema = item.inputSchema
                         if len(json.dumps(schema)) > 32768:
                             raise McpError('MCP tool schema exceeds 32 KiB.')
-                        output = JsonOutput(schema)
+                        output = JsonOutput(inline_tool_schema(schema))
                         description = (item.description or '')[:2000]
                         if policy:
                             policy.check_schema(schema)
                             description = policy.output(policy.check_input(description))
                         name = server.name + '__' + item.name
-                        if len(name) > 64 or name in gateway.tools:
-                            raise McpError('Ambiguous or overly long MCP tool name.')
-                        gateway.tools[name] = Tool(name, item.name, server, session, output, description)
+                        # Ollama/provider function names have tighter constraints than MCP.
+                        # Preserve the original name on the wire; use a stable model alias.
+                        if len(name) > 64 or not re.fullmatch(r'[A-Za-z0-9_-]+', name):
+                            suffix = hashlib.sha256(name.encode()).hexdigest()[:12]
+                            name = re.sub(r'[^A-Za-z0-9_-]', '_', name)[:51] + '_' + suffix
+                        if name in gateway.catalog:
+                            raise McpError('Ambiguous MCP tool alias.')
+                        tool = Tool(name, item.name, server, session, output, description)
+                        gateway.catalog[name] = tool
+                        if server.allow_tools is None or item.name in server.allow_tools:
+                            gateway.tools[name] = tool
                     cursor = page.nextCursor
                     if not cursor:
                         break
@@ -140,9 +167,10 @@ async def connect(servers, policy=None):
                     seen_cursors.add(cursor)
                 else:
                     raise McpError('MCP tool catalogue has too many pages.')
-                if not set(server.allow_tools) <= discovered:
+                configured = set(server.auto_approve) | set(server.allow_tools or ())
+                if not configured <= discovered:
                     raise McpError('Configured MCP tools are missing from server ' + server.name + '.')
-            if len(json.dumps([t.definition() for t in gateway.tools.values()])) > 262144:
+            if len(json.dumps([t.definition() for t in gateway.catalog.values()])) > 262144:
                 raise McpError('Combined MCP catalogue is too large.')
             yield gateway
     except (McpError, GuardrailError):
@@ -156,4 +184,4 @@ async def connect(servers, policy=None):
             if isinstance(nested, (McpError, GuardrailError)):
                 raise nested from None
             pending.extend(getattr(nested, 'exceptions', ()))
-        raise McpError('MCP connection failed. Check installed packages, server command and configuration.') from error
+        raise McpError('MCP connection failed. Check the server command or URL, credentials, dependencies and configuration.') from error

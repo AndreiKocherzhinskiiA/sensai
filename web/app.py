@@ -71,8 +71,10 @@ from structured.output import JsonOutput, StructuredOutputError, strict_json
 from structured.api import install_routes as install_structured_routes
 from guardrails import GuardrailError
 from guardrails.web import input_value, output_value, require_safe_export
+from memory.store import MemoryError as StructuredMemoryError
+from memory.web import install_routes as install_memory_routes, turn_events as memory_turn_events, enabled as memory_available
 from mcp_tools.config import McpError
-from mcp_tools.web import install_routes as install_mcp_routes, turn_events as mcp_turn_events
+from mcp_tools.web import install_routes as install_mcp_routes, turn_events as mcp_turn_events, get_manager as get_mcp_manager
 from web_search import SearxSearch, SearchError
 from web_search.context import SEARCH_RULE, filter_page, evidence_data, format_evidence
 
@@ -81,6 +83,7 @@ SCHEMAS_DIR = Path(__file__).resolve().parent.parent / 'schemas'
 
 app = FastAPI(title='Sensai Shared Service')
 install_structured_routes(app, settings)
+install_memory_routes(app)
 install_mcp_routes(app, os.getenv('SENSAI_MCP_CONFIG'))
 
 
@@ -172,6 +175,7 @@ class RunRequest(BaseModel):
     schema_name: Optional[str] = None
     python_code: Optional[str] = Field(default=None, max_length=16384)
     tools_enabled: StrictBool = True
+    memory_enabled: StrictBool = False
     file_read: Optional[str] = None
     file_write: Optional[Dict[str, str]] = None
     retrieval_filters: Optional[Dict[str, Any]] = None
@@ -282,6 +286,11 @@ class PublishSnapshotRequest(BaseModel):
     type: str
     data: Dict[str, Any]
     custom_id: Optional[str] = None
+
+
+@app.get('/static/mcp_connections.js')
+def mcp_connections_script():
+    return FileResponse(STATIC_DIR / 'mcp_connections.js', media_type='application/javascript')
 
 
 @app.get('/')
@@ -409,7 +418,7 @@ def get_session(session_id: str):
 
 def cancel_run_state(run: Dict[str, Any]) -> None:
     run['cancelled'] = True
-    for key in ('mcp_task', 'search_task'):
+    for key in ('mcp_task', 'search_task', 'memory_task'):
         task = run.get(key)
         if task is not None and not task.done():
             # Clear/delete routes run in FastAPI's worker pool, while these
@@ -417,6 +426,10 @@ def cancel_run_state(run: Dict[str, Any]) -> None:
             task.get_loop().call_soon_threadsafe(task.cancel)
     if run.get('bridge') is not None:
         run['bridge'].cancel()
+
+    pending = run.get('memory_pending')
+    if pending and not pending['future'].done():
+        pending['future'].get_loop().call_soon_threadsafe(pending['future'].cancel)
 
 
 def cancel_session_runs(session_id: str) -> int:
@@ -1288,6 +1301,8 @@ def start_run(request: RunRequest):
         'approval_plan': None,
         'approval_decision': None,
         'automatic_tools': automatic_tools,
+        'memory_enabled': request.memory_enabled and memory_available() and not temporary and effective_mode != 'stub',
+        'mcp_manager': get_mcp_manager(app) if effective_mode == 'mcp' or automatic_tools else None,
         'mcp_servers': app.state.mcp_servers if effective_mode == 'mcp' or automatic_tools else None,
         'searcher': app.state.searcher if effective_mode == 'search' else None,
     }
@@ -1322,6 +1337,10 @@ async def cancel_run(run_id: str):
         run['mcp_task'].cancel()
     if run.get('search_task') is not None:
         run['search_task'].cancel()
+    if run.get('memory_task') is not None:
+        run['memory_task'].cancel()
+    if run.get('memory_pending'):
+        run['memory_pending']['future'].cancel()
     if run.get('bridge') is not None:
         run['bridge'].cancel()
     return {'run_id': run_id, 'status': 'cancelled'}
@@ -1375,6 +1394,20 @@ async def generate_events(run: Dict[str, Any]):
 
     try:
         yield usage_event()
+        if run.get('memory_enabled'):
+            from contextlib import aclosing
+            try:
+                async with aclosing(memory_turn_events(app, run)) as memory_events:
+                    async for kind, payload in memory_events:
+                        yield to_sse(stream.emit(kind, **payload))
+            except asyncio.CancelledError:
+                if not run.get('cancelled'):
+                    raise
+            if run.get('cancelled'):
+                yield to_sse(stream.done('cancelled'))
+                return
+            prompt_tokens = calculate_history_tokens(run['messages'])
+            yield usage_event()
         if retrieved:
             yield to_sse(stream.emit('tool_call', tool='retrieval', query=run['message']))
             sources = [
@@ -1655,7 +1688,7 @@ async def generate_events(run: Dict[str, Any]):
 
     except Exception as exc:
         detail = str(exc) if not policy or isinstance(exc, (
-        GuardrailError, McpError, SearchError)) else 'Request failed; no unverified response was released.'
+        GuardrailError, McpError, SearchError, StructuredMemoryError)) else 'Request failed; no unverified response was released.'
         yield to_sse(stream.emit('error', message=detail))
         yield to_sse(stream.done('failed'))
     finally:

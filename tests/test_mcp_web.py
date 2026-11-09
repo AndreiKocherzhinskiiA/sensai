@@ -29,7 +29,10 @@ class McpWebTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.directory.cleanup)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(patch('mcp_tools.runner.review_execution',AsyncMock(return_value={
+            'status':'succeeded','observation':'Controlled successful operation'})))
         root = Path(self.directory.name)
+        self.stack.enter_context(patch.dict('os.environ', {'SENSAI_MCP_STATE':str(root/'registry.json')}))
         # Importing the web app must never open the user's databases.
         with ExitStack() as initial:
             for name in ('sessions_db', 'events_db', 'prompts_db', 'artifacts_db', 'snapshots_db'):
@@ -82,7 +85,7 @@ class McpWebTests(unittest.IsolatedAsyncioTestCase):
                  patch('mcp_tools.runner.plan_workflow',AsyncMock(return_value=[
                      {'tool':'project__write_project_file','goal':'Update the report'}])), \
                  patch('mcp_tools.runner.request_action',AsyncMock(return_value=self.call('project__write_project_file',arguments))), \
-                 patch('mcp_tools.runner.request_message',AsyncMock(return_value={'role':'assistant','content':'Updated report.'})):
+                 patch('mcp_tools.runner.request_message',AsyncMock(return_value={'role':'assistant','content':'{"answer": "Updated report.", "checks": [{"requirement": "Requested information or operation", "observed": "Updated report.", "met": true}]}'})):
                 run=await self.start(mode='ollama',message='Update the report')
                 task,queue=await self.stream(run)
                 approval=await self.next_event(queue,'approval_request')
@@ -137,6 +140,64 @@ class McpWebTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(self.sessions.get_messages(run['session_id']))
             planner.assert_not_called();model.assert_not_called()
 
+    async def asyncTearDown(self):
+        manager=getattr(self.web.app.state,'mcp_manager',None)
+        if manager is not None: await manager.close()
+
+    async def test_management_api_add_connect_disable_enable_restart_close(self):
+        row={'name':'external_time','command':'$PYTHON','args':['-m','mcp_server_time'],
+             'cwd':str(ROOT),'allow_tools':['get_current_time'],'auto_approve':[]}
+        status,body=await self.request('POST','/api/mcp/servers',row)
+        self.assertEqual(status,200,body)
+        for action,expected in [('connect','connected'),('disable','disabled'),
+                                ('enable','connected'),('restart','connected'),('close','closed')]:
+            status,body=await self.request('POST','/api/mcp/servers/external_time/'+action,{})
+            self.assertEqual(status,200,body)
+            state=json.loads(body);self.assertEqual(state['status'],expected)
+            if expected=='connected':
+                self.assertEqual(state['server_info']['name'],'mcp-time')
+                self.assertIn('inputSchema',state['tools'][0])
+        status,body=await self.request('GET','/api/mcp/servers')
+        self.assertEqual(status,200)
+        self.assertIn('external_time',body)
+        self.assertEqual((await self.request('POST','/api/mcp/servers',row))[0],422)
+
+    async def test_management_import_discovers_tools_and_applies_per_tool_permissions(self):
+        row={'mcpServers':{'dynamic_time':{'command':'$PYTHON','args':['-m','mcp_server_time'],
+                                        'env':{'MCP_TEST_SECRET':'private-configuration-value'}}}}
+        status,body=await self.request('POST','/api/mcp/servers',row)
+        self.assertEqual(status,200)
+        self.assertNotIn('private-configuration-value',body)
+        status,body=await self.request('POST','/api/mcp/servers/dynamic_time/connect',{})
+        self.assertEqual(status,200)
+        info=json.loads(body)
+        self.assertEqual(len(info['tools']),2)
+        self.assertTrue(all(t['enabled'] and t['approval']=='ask' for t in info['tools']))
+        status,body=await self.request('POST','/api/mcp/servers/dynamic_time/tools',
+                                     {'allow_tools':['get_current_time'],'auto_approve':[]})
+        self.assertEqual(status,200)
+        info=json.loads(body)
+        self.assertEqual({t['remote_name']:t['enabled'] for t in info['tools']},
+                         {'get_current_time':True,'convert_time':False})
+        status,body=await self.request('GET','/api/mcp/tools')
+        self.assertEqual(status,200)
+        self.assertIn('dynamic_time__get_current_time',body)
+        self.assertNotIn('dynamic_time__convert_time',body)
+        for settings in ({'allow_tools':['missing'],'auto_approve':[]},
+                         {'allow_tools':[],'auto_approve':['get_current_time']}):
+            self.assertEqual((await self.request('POST','/api/mcp/servers/dynamic_time/tools',settings))[0],409)
+        self.assertEqual((await self.request('POST','/api/mcp/servers/dynamic_time/tools',
+                          {'allow_tools':[],'auto_approve':[]}))[0],200)
+
+    async def test_management_blocks_cross_origin_and_remote_operator(self):
+        from starlette.requests import Request
+        from mcp_tools.web import operator_request
+        from fastapi import HTTPException
+        for host,headers in [('203.0.113.1',[(b'content-type',b'application/json')]),
+                             ('127.0.0.1',[(b'content-type',b'application/json'),(b'host',b'localhost:8000'),(b'origin',b'https://evil.example')])]:
+            request=Request({'type':'http','client':(host,1),'headers':headers})
+            with self.assertRaises(HTTPException):operator_request(request)
+
     async def test_frontend_receives_configured_model_and_mode(self):
         with patch.object(self.web.app.state, 'default_model', 'qwen3:4b'), patch.object(self.web.app.state, 'mode', 'mcp'):
             status, body = await self.request('GET', '/api/mcp')
@@ -150,7 +211,7 @@ class McpWebTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(settings, 'check_ollama_alive', return_value=True), \
              patch.object(runner, 'plan_workflow', AsyncMock(return_value=[{'tool':'project__read_project_file','goal':'Read notes'}])) as planner, \
              patch.object(runner, 'request_action', AsyncMock(return_value=self.call())), \
-             patch.object(runner, 'request_message', AsyncMock(return_value={'role':'assistant','content':'Python and SQLite'})), \
+             patch.object(runner, 'request_message', AsyncMock(return_value={'role':'assistant','content':'{"answer": "Python and SQLite", "checks": [{"requirement": "Requested information or operation", "observed": "Python and SQLite", "met": true}]}'})), \
              patch.object(self.web, 'execute_turn_stream') as ordinary:
             run = await self.start(mode='ollama', message='What language is used in project_notes.md?')
             self.assertEqual(self.web.app.state.runs[run['run_id']]['mode'], 'ollama')
@@ -162,6 +223,11 @@ class McpWebTests(unittest.IsolatedAsyncioTestCase):
             ordinary.assert_not_called()
             events = self.events.get_events(run['run_id'])
             self.assertTrue(any(e['type']=='tool_result' for e in events))
+            reviews=[e['payload'] for e in events if e['type']=='loop_step'
+                     and e['payload'].get('phase')=='review']
+            self.assertEqual(len(reviews),1)
+            self.assertEqual(reviews[0]['status'],'complete')
+            self.assertTrue(reviews[0]['checks'][0]['met'])
             self.assertEqual(self.sessions.get_messages(run['session_id'])[-1]['content'], 'Python and SQLite')
 
     async def test_no_action_continues_existing_streaming_chat(self):
@@ -474,22 +540,23 @@ class McpWebTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.decision(run, approval))[0], 409)
         self.assertFalse(any(e['type'] == 'tool_call' for e in self.events.get_events(run['run_id'])))
 
-    async def test_time_tool_is_automatic_and_actual_result_replaces_model_claim(self):
+    async def test_time_tool_keeps_natural_answer_and_raw_result_evidence(self):
         self.web.app.state.mcp_servers = self.servers[1:]
+        answer = 'The connected server reports the current time in Europe/Madrid.'
         self.model.side_effect = [self.call('time__get_current_time', {'timezone': 'Europe/Madrid'}),
-                                  {'role': 'assistant', 'content': 'Contact a@example.com'}]
+                                  {'role': 'assistant', 'content': answer}]
         run = await self.start()
         task, _ = await self.stream(run)
         _, body = await asyncio.wait_for(task, 10)
         self.assertNotIn('approval_request', body)
-        self.assertIn('Europe/Madrid', body)
-        self.assertNotIn('a@example.com', body)
+        self.assertIn(answer, body)
         saved = self.sessions.get_messages(run['session_id'])[1]['content']
-        self.assertIn('Actual time tool result:', saved)
-        self.assertIn('Europe/Madrid', saved)
-        self.assertNotIn('Contact', saved)
+        self.assertEqual(saved, answer)
         actual = next(e['payload']['result'] for e in self.events.get_events(run['run_id']) if e['type'] == 'tool_result')
-        self.assertEqual(saved, 'Actual time tool result:\n' + '\n'.join(actual['content']))
+        self.assertFalse(actual['isError'])
+        self.assertIn('Europe/Madrid', str(actual))
+        self.assertIn('datetime', str(actual))
+        self.assertNotEqual(saved, '\n'.join(actual['content']))
 
     async def test_blocked_answer_does_not_leak_or_persist(self):
         self.model.side_effect = [{'role': 'assistant', 'content': 'SECRET_TEST'}]

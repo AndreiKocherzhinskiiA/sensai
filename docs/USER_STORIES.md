@@ -89,7 +89,7 @@ As a developer, I want compression to preserve decisions, so that the assistant 
 
 ## M3 — Structured memory
 
-`M3` `CLI` `web` `owner-A` · [scope](SCOPING.md)
+`M3` `web` `API` `owner-A` · [memory guide](MEMORY.md) · [tests](../tests/test_memory.py)
 
 ### M3-1 — Remember a project fact
 
