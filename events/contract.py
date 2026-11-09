@@ -7,6 +7,7 @@ EVENT_TYPES = (
     'form_request', 'metrics', 'evaluation', 'error', 'done',
     'loop_step',
     'loop_done',
+    'usage',
 )
 RUN_STATUSES = (
     'running', 'awaiting_input', 'awaiting_approval',

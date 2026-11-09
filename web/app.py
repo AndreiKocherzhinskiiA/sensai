@@ -72,7 +72,7 @@ from structured.api import install_routes as install_structured_routes
 from guardrails import GuardrailError
 from guardrails.web import input_value, output_value, require_safe_export
 from mcp_tools.config import McpError
-from mcp_tools.web import install_routes as install_mcp_routes, turn_events as mcp_turn_events
+from mcp_tools.web import install_routes as install_mcp_routes, turn_events as mcp_turn_events, get_manager as get_mcp_manager
 from web_search import SearxSearch, SearchError
 from web_search.context import SEARCH_RULE, filter_page, evidence_data, format_evidence
 
@@ -1288,6 +1288,7 @@ def start_run(request: RunRequest):
         'approval_plan': None,
         'approval_decision': None,
         'automatic_tools': automatic_tools,
+        'mcp_manager': get_mcp_manager(app) if effective_mode == 'mcp' or automatic_tools else None,
         'mcp_servers': app.state.mcp_servers if effective_mode == 'mcp' or automatic_tools else None,
         'searcher': app.state.searcher if effective_mode == 'search' else None,
     }
