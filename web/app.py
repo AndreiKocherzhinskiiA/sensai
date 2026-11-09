@@ -284,6 +284,11 @@ class PublishSnapshotRequest(BaseModel):
     custom_id: Optional[str] = None
 
 
+@app.get('/static/mcp_connections.js')
+def mcp_connections_script():
+    return FileResponse(STATIC_DIR / 'mcp_connections.js', media_type='application/javascript')
+
+
 @app.get('/')
 def index():
     return FileResponse(STATIC_DIR / 'index.html')

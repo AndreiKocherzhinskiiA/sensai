@@ -1543,21 +1543,10 @@
         modeDD.render();
         updateSearchStatus();
       }
-      mcpTools.disabled = !info.enabled;
-      mcpTools.title = info.enabled ? 'List available tools and approval rules' : 'Start the server with SENSAI_MCP_CONFIG to enable MCP';
+      mcpTools.disabled = !info.management_enabled;
+      mcpTools.title = 'Manage MCP servers, connections and tool schemas';
     }).catch(() => { mcpTools.title = 'Could not check MCP configuration'; });
-    mcpTools.addEventListener('click', async () => {
-      mcpTools.disabled = true;
-      try {
-        const response = await fetch('/api/mcp/tools');
-        const data = await response.json();
-        if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Tool discovery failed');
-        const listing = addLine('sys-note', data.map(t => t.name + ' · ' + (t.approval === 'ask' ? 'approval required' : 'automatic') + '\n' + t.description).join('\n\n'));
-        listing.style.whiteSpace = 'pre-wrap';
-        listing.style.textAlign = 'left';
-      } catch (error) { addLine('error', error.message); }
-      finally { mcpTools.disabled = false; }
-    });
+    mcpTools.addEventListener('click', () => window.dispatchEvent(new Event('mcp:open')));
 
     const modelHost = modelInput.parentElement;
     const modelBtn = document.createElement('button');
@@ -3010,6 +2999,10 @@
         const data = JSON.parse(e.data).payload;
         if (data.kind === 'react') toolCard('ReAct completed', data, true);
       });
+      currentSource.addEventListener('loop_step', e => {
+        const data = JSON.parse(e.data).payload;
+        if (data.kind === 'mcp') toolCard('MCP · ' + data.phase, data);
+      });
       currentSource.addEventListener('tool_call', e => {
         const data = JSON.parse(e.data).payload;
         if (data.kind === 'react') toolCard('Step ' + data.step + ': ' + data.tool, data.arguments, true);
@@ -3822,5 +3815,6 @@
 
     input.focus();
   </script>
+<script src="/static/mcp_connections.js"></script>
 </body>
 </html>
