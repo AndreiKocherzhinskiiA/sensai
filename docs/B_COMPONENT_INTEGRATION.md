@@ -10,7 +10,7 @@ search or MCP mode. Other members' retrieval/session features remain in place.
 | Stage | Entry point | Contract |
 | --- | --- | --- |
 | Content input/output policy | `Guardrails.check_input`, `messages`, `output`, `json_output` | Policy rejection raises `GuardrailError`; do not persist or release rejected content. |
-| Tool discovery | `mcp_tools.gateway.connect` | Real MCP SDK initialization and discovery; only operator-allowlisted tools are exposed. |
+| Tool discovery | `mcp_tools.gateway.connect` | Real MCP SDK initialization and discovery; stdio/Streamable HTTP discovery; tools follow the operator's all-discovered or explicit selection policy, with per-call approval by default. |
 | Optional tool stage | `mcp_tools.runner.run_optional_turn`, `plan_workflow` | Validated ordered tool plan; an empty plan returns `None` to continue ordinary streaming chat. Arguments are generated per step using previous observations. |
 | Action loop | `mcp_tools.runner.run_turn` | Validated proposals, exact-argument approval, real MCP observations, bounded calls. A text-only turn is not accepted as completed action. |
 | Explicit Python task | `mcp_tools.runner.run_python_task` | Takes user-provided `code` and `goal`. First code is not rewritten by the model. Every execution needs the normal approval callback. Failed execution enters model repair. Label initial source as user-supplied in the UI. |
@@ -48,8 +48,7 @@ the project's database, then create research.md with the findings and URLs.”
 Review every proposed call, including the complete new file content.
 
 To disable a capability, remove its tool from `allow_tools` (and `auto_approve`)
-or omit its server from configuration. An empty allowlist is invalid: remove the
-server instead. `create_project_file` is registered only when the operator's
+or use Off in the web connection panel. An empty allowlist disables all tools; Disable turns off the whole server. `create_project_file` is registered only when the operator's
 file policy enables creation. `write_project_file` is registered only when write paths are granted. Keep all file tools out of `auto_approve`.
 The host owns human consent; a direct SDK call bypasses the UI, so do not expose
 these stdio servers as unauthenticated remote services.
@@ -153,24 +152,20 @@ sudo apt install bubblewrap libseccomp2
 ollama pull qwen3:4b
 ```
 
-These are setup commands. For ordinary launches use two terminals.
-Terminal 1 (search provider; keep it open):
-
-```bash
-source .venv/bin/activate
-python deploy/search/local.py
-```
-
-On a clean machine, use `python deploy/search/local.py --install` once. If port
-8088 is occupied, check whether the existing provider is already running rather
-than launching a duplicate.
-
-Terminal 2 (web; keep it open):
+These are setup commands. For ordinary launches use one terminal:
 
 ```bash
 source .venv/bin/activate
 python deploy/start_b.py
 ```
+
+The launcher starts the local SearXNG provider on port 8088 before the web app.
+It reuses an already healthy provider and refuses to take over a port occupied
+by an unrelated service. Ctrl+C stops only services it started; a reused provider
+is left running. If search has not been installed yet, run once with
+`python deploy/start_b.py --install-search`. Provider installation remains in its
+separate pinned environment. Search results still depend on upstream engines
+and network availability.
 
 Open http://127.0.0.1:8000. The launcher checks Ollama/model/dependencies,
 selects qwen3:4b, loads the integrated catalogue and demo guardrails, and seeds
@@ -205,7 +200,10 @@ Reject ends the turn; no extra automatic execution follows rejection.
 For ordinary tool calls, stay in Chat and ask `Use python__execute_python to print
 sum(range(11)).` The model supplies the code. When Python is the last action,
 the final output is also rendered from its observed result, not model prose.
-Final Time-tool results are rendered directly for the same reason.
+Other MCP tools, including Time, use the common model answer stage: a concise
+explanation grounded in actual observations. There is no Time-specific formatter
+or timezone table. The original result remains available in tool-result events
+and the web result card; model-generated prose is not itself execution evidence.
 
 ## Reproduce evidence
 
@@ -285,9 +283,28 @@ generation/validation → human approval → real MCP call → observation/repai
 stops the workflow; completed side effects are not undone. Python repair remains
 bounded by the same total call budget. JSON text resembling a tool proposal is
 never accepted as a completed action or executed directly.
-The optional routing call adds model latency. It uses the current request and
-conversation data; persona instructions remain in the answer stage and cannot
-define which capabilities the server makes available.
+The optional routing call adds model latency. Capability selection receives
+only the current user request and the discovered tool catalogue. It must not
+replay completed requests or treat retrieved document text as a new action.
+Before accepting an empty plan, one bounded review checks the current request
+against the same discovered catalogue. It can retain an empty plan for ordinary
+chat, an explicit no-tools request, or an unavailable capability; it cannot add
+an undiscovered tool or bypass approval. This adds a model call on the no-tools
+path. The persisted `loop_step` event with `phase: plan` records the model,
+available tool names, selected steps and decision (`execute_plan`,
+`no_tools_selected`, or `no_connected_tools`). The web shows it as **MCP · plan**.
+Argument generation still receives conversation history and actual observations
+to resolve references such as "that file" or "that time". Persona instructions
+remain in the answer stage and cannot define which capabilities the server makes
+available. A standalone web search must not introduce a file read or report write.
+
+Routing regression coverage includes an ordinary search after completed tool
+workflows, raw user input separated from injected document text, and references
+resolved from prior observations. Reproduce the browser check in an existing
+chat: send `Search the web for the official Python sqlite3 documentation.`.
+There must be one search approval and actual web sources, with no local file
+operation. This scenario was checked live on qwen3:4b, qwen3:0.6b and llama3.2:1b;
+these observations are specific cases, not a guarantee for every model output.
 
 Live acceptance on qwen3:4b: ordinary explanation without tools; natural-language
 web search with a real search result; tools disabled; rejected search without
@@ -315,3 +332,8 @@ with the actual current user text to `run_optional_turn` / `run_turn`, separate
 from assembled history and retrieved content. They preserve the standard schema,
 policy and approval boundary. See [File permissions](FILE_PERMISSIONS.md#exact-user-selected-tool-calls)
 for syntax and regression evidence.
+
+
+## Persistent MCP connections
+
+See [MCP connections and demonstration](MCP_CONNECTIONS.md) for the current web lifecycle manager, runtime registration, independent SDK interoperability check, and third-party Time demonstration. The web now reuses connections between turns; standalone CLI calls still own short-lived sessions. This supersedes earlier per-turn web connection guidance.
