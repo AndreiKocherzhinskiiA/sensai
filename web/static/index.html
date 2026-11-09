@@ -2827,7 +2827,6 @@
       currentRunId = null;
       refreshSessions();
       document.querySelector('.msg.assistant.streaming, .msg.assistant.waiting')?.classList.remove('streaming', 'waiting');
-      void updateSessionListSafely();
     }
 
     cancel.addEventListener('click', async () => {
@@ -3064,7 +3063,12 @@
       });
       currentSource.addEventListener('approval_request', e => {
         const data = JSON.parse(e.data).payload;
-        if (data.kind !== 'mcp') return;
+        // File plans and MCP calls have different approval tokens and endpoints.
+        // Route each event once so a tool call cannot become a file-write approval.
+        if (data.kind !== 'mcp') {
+          if (!data.kind && data.action === 'write' && data.plan_id) addApproval(runId, data);
+          return;
+        }
         const card = toolCard('Allow ' + data.tool + '?', data.arguments, true);
         const note = el('p', null, 'Approve this call only. Expires in ' + data.timeout_seconds + ' seconds. Reject ends this turn.');
         const approve = el('button', 'btn', 'Approve');
@@ -3158,11 +3162,6 @@
         }
         setRaw(reply, (reply._raw || '') + JSON.parse(e.data).payload.text);
         scrollDown();
-      });
-
-      currentSource.addEventListener('approval_request', (e) => {
-        const ev = JSON.parse(e.data);
-        addApproval(ev.run_id || runId, ev.payload);
       });
 
       currentSource.addEventListener('tool_result', (e) => {
