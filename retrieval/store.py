@@ -6,7 +6,7 @@ import sqlite3
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from threading import Lock
 
 import chromadb
 from chromadb.config import Settings
@@ -30,6 +30,7 @@ class VectorStore:
     """ChromaDB vector store with collection-scoped configuration."""
 
     def __init__(self, db_path: str = ":memory:"):
+        self._source_lock = Lock()
         self._persistent = db_path != ":memory:"
         if self._persistent:
             chroma_path = str(Path(f"{db_path}.chroma"))
@@ -230,40 +231,61 @@ class VectorStore:
         collection_id: str = "default",
     ) -> str:
         """Insert one chunk into a Chroma collection."""
+        chunk = {"start_line": start_line, "end_line": end_line, "content": content}
+        with self._source_lock:
+            return self._upsert_source(source_file, [chunk], [embedding], collection_id, metadata)[0]
+
+    def replace_source(self, source_file: str, chunks: list[dict],
+                       embeddings: list[list[float]], collection_id: str = "default"):
+        """Replace one document in its collection, keeping old chunks if upsert fails."""
+        with self._source_lock:
+            collection = self._chroma_collection(collection_id)
+            previous_ids = collection.get(where={"source_file": source_file}, include=[])["ids"]
+            current_ids = set(self._upsert_source(source_file, chunks, embeddings, collection_id))
+            stale_ids = [chunk_id for chunk_id in previous_ids if chunk_id not in current_ids]
+            if stale_ids:
+                collection.delete(ids=stale_ids)
+
+    def _upsert_source(self, source_file, chunks, embeddings, collection_id, metadata=None):
+        if not chunks or len(chunks) != len(embeddings):
+            raise ValueError("Each document chunk must have one embedding")
         collection = self.get_collection(collection_id)
         dimension = collection["embedding_dimension"]
-        if dimension is not None and dimension != len(embedding):
-            raise ValueError(
-                f"Embedding dimension {len(embedding)} does not match collection dimension {dimension}"
-            )
-        if dimension is None:
-            self.conn.execute(
-                "UPDATE collections SET embedding_dimension = ?, updated_at = ? WHERE id = ?",
-                (len(embedding), self._now(), collection_id),
-            )
-            self.conn.commit()
+        expected_dimension = len(embeddings[0]) if dimension is None else dimension
+        for embedding in embeddings:
+            if not expected_dimension or len(embedding) != expected_dimension:
+                raise ValueError(
+                    f"Embedding dimension {len(embedding)} does not match collection dimension {expected_dimension}"
+                )
 
-        chunk_id = hashlib.sha256(
-            f"{source_file}:{start_line}:{end_line}:{content}".encode("utf-8")
-        ).hexdigest()
-        stored_metadata: dict[str, Any] = dict(metadata or {})
-        stored_metadata.update({
-            "source_file": source_file,
-            "start_line": start_line,
-            "end_line": end_line,
-            "collection_id": collection_id,
-            "metadata_json": json.dumps(metadata or {}),
-        })
+        ids, documents, metadatas = [], [], []
+        for chunk in chunks:
+            start_line, end_line, content = chunk["start_line"], chunk["end_line"], chunk["content"]
+            ids.append(hashlib.sha256(
+                f"{source_file}:{start_line}:{end_line}:{content}".encode("utf-8")
+            ).hexdigest())
+            documents.append(content)
+            metadatas.append({
+                **(metadata or {}),
+                "source_file": source_file,
+                "start_line": start_line,
+                "end_line": end_line,
+                "collection_id": collection_id,
+                "metadata_json": json.dumps(metadata or {}),
+            })
         try:
             self._chroma_collection(collection_id).upsert(
-                ids=[chunk_id],
-                embeddings=[embedding],
-                documents=[content],
-                metadatas=[stored_metadata],
+                ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas,
             )
         except InvalidDimensionException as error:
             raise ValueError(str(error)) from error
-        return chunk_id
+        if dimension is None:
+            self.conn.execute(
+                "UPDATE collections SET embedding_dimension = ?, updated_at = ? WHERE id = ?",
+                (expected_dimension, self._now(), collection_id),
+            )
+            self.conn.commit()
+        return ids
 
     @staticmethod
     def _result(
@@ -343,10 +365,13 @@ class VectorStore:
             chunks.append(item)
         return chunks
 
-    def delete_source(self, source_file: str) -> int:
-        cursor = self.conn.execute("DELETE FROM chunks WHERE source_file = ?", (source_file,))
-        self.conn.commit()
-        return cursor.rowcount
+    def delete_source(self, source_file: str, collection_id: str = "default") -> int:
+        with self._source_lock:
+            collection = self._chroma_collection(collection_id)
+            ids = collection.get(where={"source_file": source_file}, include=[])["ids"]
+            if ids:
+                collection.delete(ids=ids)
+            return len(ids)
 
     def close(self):
         """Close the configuration database."""

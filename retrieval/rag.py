@@ -49,8 +49,9 @@ def retrieve_advanced(query: str, store: VectorStore, top_k: int = 5,
     # Run hybrid search for each query variant, then merge results by id,
     # keeping the highest score seen for any chunk across all variants.
     merged: dict[int, dict] = {}
+    embedding_options = {"base_url": base_url} if base_url != "http://localhost:11434" else {}
     for q in queries:
-        query_vector = embed([q], model=model)[0]
+        query_vector = embed([q], model=model, **embedding_options)[0]
         results = hybrid_search(
             q,
             query_vector,

@@ -48,7 +48,7 @@ class DocumentUploadTests(unittest.TestCase):
     def test_upload_uses_requested_collection_configuration(self):
         self.store.create_collection("course")
         document = self.upload("guide.md", b"one\ntwo\nthree")
-        with patch("web.app.embed", return_value=[[1.0, 0.0]]) as embed_mock:
+        with patch("web.app.embed", return_value=[[1.0, 0.0], [0.0, 1.0]]) as embed_mock:
             result = asyncio.run(web_module.upload_retrieval_document(
                 document,
                 collection_id="course",
@@ -62,6 +62,30 @@ class DocumentUploadTests(unittest.TestCase):
         config = self.store.get_collection("course")
         self.assertEqual(config["chunk_size"], 2)
         self.assertEqual(config["chunk_overlap"], 0)
+        self.assertEqual(len(self.store.get_all_for_collection("course")), 2)
+        self.assertEqual(self.store.get_all(), [])
+
+    def test_uploaded_document_reaches_chat_model_context(self):
+        note = b"The handover code is COBALT-731."
+        with patch("web.app.embed", return_value=[[1.0, 0.0]]):
+            asyncio.run(web_module.upload_retrieval_document(self.upload("handover.txt", note)))
+
+        question = "What is the handover code?"
+        with (
+            patch.object(self.app.state, "runs", {}) as runs,
+            patch.object(self.app.state, "retrieval_collection", "default"),
+            patch.object(web_module.settings, "check_ollama_alive", return_value=True),
+            patch("retrieval.rag.rewrite_query", return_value=[question]),
+            patch("retrieval.rag.embed", return_value=[[1.0, 0.0]]),
+            patch("retrieval.rerank._score_relevance", return_value=None),
+        ):
+            result = web_module.start_run(web_module.RunRequest(
+                message=question, mode="ollama", temporary=True, tools_enabled=False
+            ))
+            turn = runs[result["run_id"]]
+            self.assertIn("handover.txt", turn["messages"][-1]["content"])
+            self.assertIn("COBALT-731", turn["messages"][-1]["content"])
+            self.assertEqual(turn["message"], question)
 
     def test_upload_reports_embedding_failure_without_fallback(self):
         document = self.upload("guide.md", b"content")

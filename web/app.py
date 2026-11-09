@@ -528,7 +528,7 @@ def save_profile(req: ProfileRequest):
 @app.post('/api/retrieval/upload')
 async def upload_retrieval_document(
         file: UploadFile = File(...),
-        collection_id: str = 'default',
+        collection_id: Optional[str] = None,
         embedding_model: Optional[str] = None,
         chunk_size: Optional[int] = None,
         chunk_overlap: Optional[int] = None,
@@ -552,9 +552,14 @@ async def upload_retrieval_document(
 
     content = input_value(app, content)
     filename = input_value(app, original_name)
-    collection = _configure_ingestion_collection(
-        collection_id, embedding_model, chunk_size, chunk_overlap
-    )
+    collection_id = collection_id if collection_id is not None else app.state.retrieval_collection
+    try:
+        collection = _configure_ingestion_collection(
+            collection_id, embedding_model, chunk_size, chunk_overlap
+        )
+    except ValueError as error:
+        status = 404 if str(error).startswith('Unknown collection') else 422
+        raise HTTPException(status_code=status, detail=str(error)) from error
     chunks = chunk_text(
         content,
         chunk_size=collection['chunk_size'],
@@ -565,20 +570,16 @@ async def upload_retrieval_document(
 
     contents = [chunk['content'] for chunk in chunks]
     try:
-        vectors = embed(contents, model=collection['embedding_model'])
+        vectors = await asyncio.to_thread(
+            embed, contents, model=collection['embedding_model'], base_url=app.state.ollama_host
+        )
     except RuntimeError as error:
         raise HTTPException(status_code=502, detail=f'Embedding failed: {error}') from error
 
-    app.state.vector_store.delete_source(filename)
-    for chunk, vector in zip(chunks, vectors):
-        app.state.vector_store.add(
-            source_file=filename,
-            start_line=chunk['start_line'],
-            end_line=chunk['end_line'],
-            content=chunk['content'],
-            embedding=vector,
-            collection_id=app.state.retrieval_collection,
-        )
+    try:
+        app.state.vector_store.replace_source(filename, chunks, vectors, collection_id=collection_id)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
     return {
         'status': 'ingested',
@@ -590,8 +591,12 @@ async def upload_retrieval_document(
 
 
 @app.get('/api/retrieval/sources')
-def list_sources(collection_id: str = 'default'):
-    all_chunks = app.state.vector_store.get_all_for_collection(collection_id)
+def list_sources(collection_id: Optional[str] = None):
+    collection_id = collection_id if collection_id is not None else app.state.retrieval_collection
+    try:
+        all_chunks = app.state.vector_store.get_all_for_collection(collection_id)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
     sources: Dict[str, int] = {}
     for c in all_chunks:
         src = c.get('source_file', 'unknown')
@@ -706,8 +711,13 @@ def _configure_ingestion_collection(
 
 
 @app.delete('/api/retrieval/sources')
-def delete_source(source_file: str = Query(..., min_length=1, max_length=512)):
-    removed = app.state.vector_store.delete_source(source_file)
+def delete_source(source_file: str = Query(..., min_length=1, max_length=512),
+                  collection_id: Optional[str] = None):
+    collection_id = collection_id if collection_id is not None else app.state.retrieval_collection
+    try:
+        removed = app.state.vector_store.delete_source(source_file, collection_id=collection_id)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
     if not removed:
         raise HTTPException(status_code=404, detail='Document not found.')
     return {'status': 'deleted', 'source_file': source_file, 'chunks_removed': removed}
@@ -1048,27 +1058,6 @@ def get_run_history(run_id: str):
     return output_value(app, events)
 
 
-def run_feature_pipeline(user_text: str, pending_messages: List[Dict[str, str]]) -> Tuple[str, List[Dict[str, str]]]:
-    """
-    Custom feature chain/pipeline integrating preprocessing, tagging, or query transformation.
-    This intercepts the processed turn right before it enters Guardrails or Model Generation.
-    """
-    # Step A: Execute custom logic (query rewrites, API lookups, tagging, classification)
-    cleaned_text = user_text.strip()
-
-    # Example: You can implement dynamic routing or rewrite logic here
-    # if "summarize" in cleaned_text.lower():
-    #     cleaned_text = f"Please provide a concise summary: {cleaned_text}"
-
-    # Step B: Ensure the final transformed text updates the context chain correctly
-    if pending_messages and pending_messages[-1].get("role") == "user":
-        last_msg = pending_messages[-1].copy()
-        last_msg["content"] = cleaned_text
-        pending_messages = pending_messages[:-1] + [last_msg]
-
-    return cleaned_text, pending_messages
-
-
 def previous_chat_reply(history, message, *, reuse_search):
     if len(history) < 2:
         return None
@@ -1258,14 +1247,12 @@ def start_run(request: RunRequest):
         retrieval_rerank_model=settings.retrieval_rerank_model,
         retrieval_rerank_threshold=settings.retrieval_rerank_threshold,
         retrieval_rerank_top_n=settings.retrieval_rerank_top_n,
+        retrieval_base_url=app.state.ollama_host,
+        retrieval_strict_reranking=False,
         retrieval_filters=request.retrieval_filters,
         file_enabled=(app.state.workspace_writer is not None),
         guardrails=policy,
     )
-
-    # === CONNECTED FEATURE PIPELINE EXECUTION ===
-    user_content, to_send = run_feature_pipeline(user_content, to_send)
-    # ============================================
 
     if not request.tools_enabled:
         to_send.insert(0, {'role': 'system', 'content':

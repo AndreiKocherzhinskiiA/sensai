@@ -193,6 +193,8 @@ def assemble_turn(
     retrieval_rerank_model: str = "qwen3:0.6b",
     retrieval_rerank_threshold: float = 3.0,
     retrieval_rerank_top_n: int = 10,
+    retrieval_base_url: str = "http://localhost:11434",
+    retrieval_strict_reranking: bool = True,
     retrieval_filters: Optional[Dict[str, Any]] = None,
     retrieval_func: Optional[Callable[..., List[Dict[str, Any]]]] = None,
     file_enabled: bool = False,
@@ -257,6 +259,8 @@ def assemble_turn(
                 rerank_model=retrieval_rerank_model,
                 rejection_threshold=retrieval_rerank_threshold,
                 rerank_top_n=retrieval_rerank_top_n,
+                base_url=retrieval_base_url,
+                strict_reranking=retrieval_strict_reranking,
                 filters=retrieval_filters,
                 collection_id=retrieval_collection,
             )
