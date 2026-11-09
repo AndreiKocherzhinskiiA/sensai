@@ -3059,8 +3059,13 @@
           return;
         }
         if (data.kind === 'memory') {
-          const labels = {read: 'Memory · retrieved facts', create: 'Memory · saved', update: 'Memory · updated', delete: 'Memory · deleted'};
-          toolCard(labels[data.action] || 'Memory', data.result);
+          const labels = {previous_chat: 'Memory · previous conversation', read: 'Memory · retrieved facts', create: 'Memory · saved', update: 'Memory · updated', delete: 'Memory · deleted'};
+          const memoryCard = toolCard(labels[data.action] || 'Memory', data.result);
+          if (data.action === 'previous_chat') {
+            const source = data.result.conversation;
+            memoryCard.appendChild(el('p', null, source ? 'Source: ' + source.title : 'No saved conversation available.'));
+            if (data.result.truncated) memoryCard.appendChild(el('p', null, 'Only an excerpt was supplied to the assistant.'));
+          }
           setStatus('Memory checked · preparing answer', 'busy');
           return;
         }

@@ -209,3 +209,38 @@ class WebMemoryTests(unittest.IsolatedAsyncioTestCase):
         await self.decide(run, approval); await asyncio.wait_for(task, 5)
         self.assertEqual(self.store.search('Aurora')['records'][0]['value'], 'MariaDB')
         self.answer.assert_not_called()
+
+
+    async def test_previous_chat_retrieval_works_with_no_structured_facts(self):
+        self.sessions.create_session(session_id='earlier')
+        self.sessions.add_message('earlier', 'user', 'The Lantern inventory app uses SQLite and exports CSV every Friday.')
+        self.sessions.add_message('earlier', 'assistant', 'We also planned the Monday demo.')
+        self.model.side_effect = [{'action': 'previous_chat', 'query': ''}]
+        run, task, _ = await self.start('What did we talk about in the previous chat?')
+        await asyncio.wait_for(task, 5)
+        events = self.events.get_events(run['run_id'])
+        observation = next(e['payload']['result'] for e in events if e['type']=='tool_result' and e['payload'].get('action')=='previous_chat')
+        self.assertEqual(observation['conversation']['id'], 'earlier')
+        self.assertIn('SQLite', str(observation['messages']))
+        self.assertIn('Friday', str(self.answer.call_args.kwargs['to_send']))
+        self.assertEqual(self.store.search()['records'], [])
+        self.assertFalse(any(e['type']=='approval_request' for e in events))
+        self.assertFalse(self.answer.call_args.kwargs['cache_context_independent'])
+
+    async def test_absent_previous_chat_is_not_reported_as_empty_fact_search(self):
+        self.model.side_effect = [{'action': 'previous_chat', 'query': ''}]
+        run, task, _ = await self.start('What was our previous conversation about?')
+        await asyncio.wait_for(task, 5)
+        observation = next(e['payload']['result'] for e in self.events.get_events(run['run_id'])
+                           if e['type']=='tool_result' and e['payload'].get('action')=='previous_chat')
+        self.assertEqual(observation['status'], 'not_found')
+        self.assertIsNone(observation['conversation'])
+        self.assertNotIn('search', observation)
+
+    async def test_private_or_disabled_turn_never_reads_other_chats(self):
+        for options in ({'memory_enabled': False}, {'temporary': True}):
+            with self.subTest(options=options), patch.object(self.sessions, 'previous_conversation') as lookup:
+                run, task, _ = await self.start('What did we discuss in the previous chat?', **options)
+                await asyncio.wait_for(task, 5)
+                lookup.assert_not_called()
+                self.model.assert_not_called()

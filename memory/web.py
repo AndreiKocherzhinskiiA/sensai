@@ -47,14 +47,19 @@ async def turn_events(app, run):
     store = store_for(app)
     history = [m for m in run['messages'][:-1] if m.get('role') in ('user', 'assistant')]
     task = asyncio.create_task(pipeline.prepare(store, run['message'], history,
-        run['host'], run['model'], run['timeout'], run.get('guardrails')))
+        run['host'], run['model'], run['timeout'], run.get('guardrails'),
+        session_store=app.state.session_store, current_session_id=run['session_id']))
     run['memory_task'] = task
     try:
         prepared = await task
         if run.get('cancelled') or prepared['action'] == 'none':
             return
-        observation = {'search': prepared['search']}
-        yield 'tool_result', {'kind': 'memory', 'action': 'read', 'result': prepared['search']}
+        if prepared['action'] == 'previous_chat':
+            observation = {'conversation_history': prepared['history']}
+            yield 'tool_result', {'kind': 'memory', 'action': 'previous_chat', 'result': prepared['history']}
+        else:
+            observation = {'search': prepared['search']}
+            yield 'tool_result', {'kind': 'memory', 'action': 'read', 'result': prepared['search']}
         proposal = prepared.get('proposal')
         if proposal is not None:
             future = asyncio.get_running_loop().create_future()

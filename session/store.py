@@ -278,6 +278,57 @@ class SessionStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def previous_conversation(self, current_session_id: str, max_messages: int = 24,
+                              max_chars: int = 10000) -> dict:
+        """Read the most recently active OTHER saved chat, excluding empty/failed turns.
+
+        This local application has one conversation workspace. Message ids, not
+        rename/profile timestamps, determine which conversation was most recent.
+        A bounded excerpt declares every omitted or shortened message explicitly.
+        """
+        if not 1 <= max_messages <= 100 or not 500 <= max_chars <= 30000:
+            raise ValueError('Invalid conversation excerpt limits.')
+        with self._connect() as conn:
+            session = conn.execute(
+                """SELECT s.id, s.title, MAX(m.id) AS last_message_id,
+                          MAX(m.created_at) AS last_message_at, COUNT(*) AS message_count
+                   FROM sessions s JOIN messages m ON m.session_id=s.id
+                   WHERE s.id != ? AND m.status='completed' AND m.role IN ('user','assistant')
+                   GROUP BY s.id ORDER BY last_message_id DESC LIMIT 1""",
+                (current_session_id,),
+            ).fetchone()
+            if not session:
+                return {'status': 'not_found', 'conversation': None, 'messages': [],
+                        'notice': 'No other saved conversation with completed messages is available. '
+                                  'This does not establish that no earlier conversation ever occurred.'}
+            rows = conn.execute(
+                """SELECT id, role, substr(content,1,?) AS content, length(content) AS original_chars,
+                          created_at FROM messages
+                   WHERE session_id=? AND status='completed' AND role IN ('user','assistant')
+                   ORDER BY id DESC LIMIT ?""",
+                (max_chars, session['id'], max_messages),
+            ).fetchall()
+        messages, used = [], 0
+        for row in rows:
+            available = max_chars - used
+            if available <= 0:
+                break
+            content = row['content'][:available]
+            messages.append({'id': row['id'], 'role': row['role'], 'content': content,
+                             'created_at': row['created_at'],
+                             'content_truncated': len(content) < row['original_chars']})
+            used += len(content)
+        messages.reverse()
+        omitted = session['message_count'] - len(messages)
+        truncated = bool(omitted or any(m['content_truncated'] for m in messages))
+        return {'status': 'found', 'conversation': {'id': session['id'], 'title': session['title'],
+                'last_message_at': session['last_message_at']}, 'messages': messages,
+                'total_messages': session['message_count'], 'omitted_messages': omitted,
+                'truncated': truncated,
+                'selection': 'Most recently active other saved conversation, by completed message order.',
+                'notice': 'Only a bounded excerpt is available; do not claim it covers the whole conversation.'
+                          if truncated else 'All completed user and assistant messages from this conversation are included.'}
+
     def set_active_session(self, user_id: str, session_id: str) -> None:
         with self._transaction() as conn:
             if not conn.execute(
