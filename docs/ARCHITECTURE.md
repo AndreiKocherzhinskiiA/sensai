@@ -8,6 +8,7 @@
 | Web service | HTTP endpoints, run state, SSE and browser pages | [web/app.py](../web/app.py) |
 | Shared chat | Context assembly, streaming, persistence and cache eligibility | [core/chat.py](../core/chat.py) |
 | Sessions and profiles | Persistent conversation and user preferences | [session/](../session/) |
+| Structured memory | Model-proposed facts, approval, SQLite CRUD and cross-chat recall | [memory/](../memory/) |
 | Personas and prompts | Configurable roles and stored prompt versions | [persona/](../persona/), [prompts/](../prompts/) |
 | Retrieval | Chunking, embeddings, vector/BM25 search and reranking | [retrieval/](../retrieval/) |
 | Tool execution | MCP discovery, argument validation, approval and feedback loop | [mcp_tools/](../mcp_tools/) |
@@ -77,3 +78,11 @@ localhost snapshot creates a local link, not an internet publication service.
 General multi-agent delegation, scheduling, conversation branching and complete
 artifact/form orchestration are not established by the current component map;
 consult the [feature register](FEATURES.md).
+
+
+Structured memory is an independent pre-answer application stage. When Memory is
+enabled for a non-temporary web turn, it retrieves facts and may propose an
+approved mutation before answer generation or external tool execution. MCP can
+be absent or disabled. Actual memory observations enter the current request;
+completed changes are not rolled back if a later model/tool step fails. See
+[persistent structured memory](MEMORY.md) for the contract and limitations.

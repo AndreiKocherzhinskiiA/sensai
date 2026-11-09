@@ -11,7 +11,7 @@ Every entry links to its implementation or guide and has two
 | B1 | Local chat | A | [chat tests](../tests/test_chatbot.py) |
 | M1 | Sessions and profiles | A | [session tests](../tests/test_session_store.py) |
 | M2 | Context budgeting and compression | A | [scope](SCOPING.md) |
-| M3 | Structured memory | A | [scope](SCOPING.md) |
+| M3 | Structured memory | A | [memory guide](MEMORY.md) |
 | M4 | Living artifacts | D | [artifact service](../artifacts/service.py) |
 | T1 | MCP tools | B | [MCP guide](MCP.md) |
 | T2 | Sandboxed Python | B | [sandbox guide](SANDBOX.md) |
@@ -42,7 +42,7 @@ Every entry links to its implementation or guide and has two
 - **B1 — Local chat:** Direct Ollama chat with history and streaming. Guardrails and JSON modes intentionally buffer output.
 - **M1 — Sessions and profiles:** SQLite sessions and profiles persist across restarts. They are distinct from autonomous fact memory.
 - **M2 — Context budgeting and compression:** No integrated budget/compression path in the reviewed main revision. Work in another branch is not a released feature.
-- **M3 — Structured memory:** Session/profile databases exist; model-driven CRUD of separate facts and relationships is not integrated.
+- **M3 — Structured memory:** Built-in web memory stores separate facts and relationships in SQLite. Model-proposed CRUD, approval, cross-chat recall, version checks and an independent Memory switch are integrated; see [memory guide](MEMORY.md).
 - **M4 — Living artifacts:** Versioned section edits and exports exist through the API; autonomous model edits and a complete authoring UI remain incomplete.
 - **T1 — MCP tools:** Real stdio MCP with a custom project server and an existing time server; model-selected calls, not merely text descriptions.
 - **T2 — Sandboxed Python:** Linux/WSL, standard library, read-only filesystem and no network/process creation. Each run is bounded and separately approved.
