@@ -51,6 +51,17 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(self.store.search()['matched_count'], 2)
         self.assertEqual(self.store.search('Alice')['records'][0]['kind'], 'relationship')
 
+    def test_context_limit_never_silently_discards_records(self):
+        from memory.pipeline import bounded_records, bounded_history
+        for n in range(5):
+            self.store.create(str(n), 'description', 'x' * 2000, 'source' * 100)
+        result = bounded_records(self.store.search(), max_chars=6000)
+        self.assertLess(len(result['records']), 5)
+        self.assertTrue(result['truncated'])
+        self.assertEqual(result['matched_count'], 5)
+        self.assertIn('omitted', result['notice'])
+        history = bounded_history([{'role': 'user', 'content': 'x' * 10000}], max_chars=4000)
+        self.assertEqual(history['omitted_messages'], 1)
 
     def test_limits_and_truncation_are_explicit(self):
         for n in range(3): self.store.create(str(n), 'name', 'demo', 'user')
