@@ -1,8 +1,64 @@
-# Sensai
+<div align="center">
 
-Sensai is a local AI assistant for researching software projects, working with
-documents, and running tools through Ollama. The web app supports live web search,
-MCP connections, sandboxed Python, persistent memory, and structured results.
+<h1>Sensai</h1>
+
+**A local AI workspace for chat, documents, and tools.**
+
+Research software projects, work with your files, and turn notes into structured results with Ollama.
+
+[Features](#features) · [App preview](#app-preview) · [Run the web app](#run-the-web-app) · [Documentation](docs/README.md)
+
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)
+![Ollama](https://img.shields.io/badge/Models-Ollama-18181B?style=flat-square)
+![MCP](https://img.shields.io/badge/Tools-MCP-e2512f?style=flat-square)
+
+</div>
+
+## App preview
+
+<img src="docs/images/workspace.gif" alt="Sensai walkthrough: switch saved conversations, open Documents, and change between dark and light appearance" width="1100">
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/chat.png" alt="Sensai dark theme with pinned chats, model and persona selection, and a sample architecture conversation"></td>
+    <td width="50%"><img src="docs/images/chat-light.png" alt="Sensai light theme showing a sample document research conversation"></td>
+  </tr>
+  <tr>
+    <td align="center">Saved conversations &amp; model controls</td>
+    <td align="center">Light and dark appearance</td>
+  </tr>
+</table>
+
+<img src="docs/images/checklist.gif" alt="Structured workspace: mark saved tasks complete, then reload to verify that progress persists" width="1100">
+
+<details>
+<summary>Structured workspace screenshot</summary>
+
+![Saved task list with priorities, completion tracking, and validated JSON](docs/images/structured.png)
+
+</details>
+
+Captured from the running web app with isolated sample conversations and a seeded task list.
+The GIFs show real navigation, appearance changes, and persisted checklist updates;
+the sample text is illustrative and does not demonstrate live model inference or extraction.
+
+## Features
+
+| Area | What you can do |
+| --- | --- |
+| **Chat workspace** | Stream replies, switch personas and local models, pin and search saved chats, or start a temporary conversation. |
+| **Document retrieval** | Upload Markdown or text; use Chroma-backed retrieval with hybrid search, query rewriting, and reranking. |
+| **Tools & permissions** | Connect MCP servers, manage tool access, review proposed actions, and inspect execution feedback. |
+| **Web research** | Search through a local SearXNG provider and inspect the sources returned to the assistant. |
+| **Python sandbox** | Review and run supplied or proposed Python in Linux isolation with Bubblewrap and seccomp. |
+| **Memory** | Keep scoped facts across conversations with explicit approval for changes. |
+| **Structured results** | Produce schema-validated tasks, plans, or custom records; track checklist progress and export JSON. |
+| **Artifacts & observability** | Edit versioned documents, export snapshots, and inspect run events in the dashboard. |
+
+This repository is a personal public copy of a collaborative Epitech project.
+The original development history and contributor attribution are preserved.
+The web app is designed for local use; see the setup below and the [verification guide](docs/VERIFY.md) for prerequisites and coverage limits.
 
 ## Run the web app
 
